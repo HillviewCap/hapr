@@ -269,6 +269,7 @@ class Finding:
     category: str = ""
     remediation: str = ""
     weight: int = 0
+    tier: str | None = None
 
 
 @dataclass

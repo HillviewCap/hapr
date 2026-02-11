@@ -232,12 +232,27 @@ listen stats
         assert finding.status == Status.PARTIAL
         assert "username equals password" in finding.evidence
 
-    def test_strong_password_passes(self):
+    def test_strong_password_without_hardening_returns_partial(self):
+        """Auth with strong password but missing hide-version and admin ACL returns PARTIAL."""
         config = parse_string("""
 listen stats
     bind *:9000
     stats enable
     stats auth admin:Str0ng!P@ssw0rd#2024
+""")
+        finding = check_stats_access_restricted(config)
+        assert finding.status == Status.PARTIAL
+        assert "stats hide-version" in finding.evidence
+
+    def test_strong_password_with_full_hardening_passes(self):
+        """Auth with strong password + hide-version + admin ACL returns PASS."""
+        config = parse_string("""
+listen stats
+    bind *:9000
+    stats enable
+    stats auth admin:Str0ng!P@ssw0rd#2024
+    stats hide-version
+    stats admin if LOCALHOST
 """)
         finding = check_stats_access_restricted(config)
         assert finding.status == Status.PASS

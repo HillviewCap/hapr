@@ -54,8 +54,11 @@ def cli(ctx, baseline, nvd_api_key, haproxy_socket, haproxy_bin, stats_url):
               help="Enable HAProxy version detection and CVE checking.")
 @click.option("--full", is_flag=True, default=False,
               help="Enable all features (scan + version/CVE detection).")
+@click.option("--tier", type=click.Choice(["baseline", "level1", "level2", "level3"],
+              case_sensitive=False), default=None,
+              help="Only run checks up to this tier (baseline < level1 < level2 < level3).")
 @click.pass_context
-def audit(ctx, config_path, output, scan, scan_targets, version_detect, full):
+def audit(ctx, config_path, output, scan, scan_targets, version_detect, full, tier):
     """Run a security audit on a HAProxy configuration file."""
     from .parser import parse_file
     from .framework.engine import run_audit
@@ -125,12 +128,16 @@ def audit(ctx, config_path, output, scan, scan_targets, version_detect, full):
             console.print(f"[yellow]Version detection error:[/] {exc}")
 
     # Run audit
-    console.print("[bold blue]Running security audit...[/]")
+    if tier:
+        console.print(f"[bold blue]Running security audit...[/] (tier: [cyan]{tier}[/])")
+    else:
+        console.print("[bold blue]Running security audit...[/]")
     result = run_audit(
         config=config,
         baseline_path=ctx.obj.get("baseline"),
         scan_results=scan_results,
         cve_results=cve_results,
+        tier=tier,
     )
 
     # Display results

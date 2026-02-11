@@ -71,6 +71,7 @@ def check_frontend_connection_limits(config: HAProxyConfig) -> Finding:
     )
 
 
+# NOTE: This function is no longer referenced in the baseline YAML (redundant with check_frontend_connection_limits + global_defaults.check_global_maxconn)
 def check_maxconn_set(config: HAProxyConfig) -> Finding:
     """HAPR-FRT-002: Check that maxconn is set in frontends or globally.
 

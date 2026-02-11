@@ -232,15 +232,24 @@ def check_stats_access_restricted(config: HAProxyConfig) -> Finding:
 
     If stats is enabled (via ``stats enable`` or ``stats uri`` in any section),
     verifies that ``stats auth`` or ACL-based access control is also configured
-    for the same section.
+    for the same section.  Also checks for ``stats hide-version`` (to prevent
+    version disclosure) and ``stats admin if`` ACL restriction (to limit admin
+    access).
 
-    Returns PASS if stats is not enabled or if enabled with authentication.
-    Returns FAIL if stats is enabled without any form of authentication.
+    Returns PASS if stats is not enabled, OR if stats has auth + hide-version
+    + admin ACL restriction.
+    Returns PARTIAL if stats has auth but is missing hide-version or admin ACL.
+    Returns FAIL if stats is enabled without authentication.
     """
     stats_enabled_sections: list[str] = []
     secured_sections: list[str] = []
     unsecured_sections: list[str] = []
     weak_password_issues: list[str] = []
+    missing_hardening: list[str] = []
+
+    # Track global hide-version and admin ACL across all sections
+    global_has_hide_version = False
+    global_has_admin_acl = False
 
     # Check all sections that can carry stats directives
     all_sections = (
@@ -257,6 +266,8 @@ def check_stats_access_restricted(config: HAProxyConfig) -> Finding:
         has_stats_uri = False
         has_stats_auth = False
         has_acl_restriction = False
+        has_hide_version = False
+        has_admin_acl = False
 
         for directive in section.directives:
             keyword = directive.keyword.lower()
@@ -284,9 +295,12 @@ def check_stats_access_restricted(config: HAProxyConfig) -> Finding:
                         weak_password_issues.append(
                             f"[{section_label}] stats auth username equals password"
                         )
+            elif keyword == "stats" and args_lower.startswith("hide-version"):
+                has_hide_version = True
+                global_has_hide_version = True
             elif keyword == "stats" and args_lower.startswith("admin"):
-                # stats admin often implies there is an auth requirement
-                pass
+                has_admin_acl = True
+                global_has_admin_acl = True
 
             # Check for ACL-based http-request deny/allow near stats
             if keyword == "http-request" and "stats" in args_lower:
@@ -330,10 +344,27 @@ def check_stats_access_restricted(config: HAProxyConfig) -> Finding:
             evidence="; ".join(weak_password_issues),
         )
 
+    # Auth is present and password is strong — now check for hardening (hide-version, admin ACL)
+    if not global_has_hide_version:
+        missing_hardening.append("stats hide-version")
+    if not global_has_admin_acl:
+        missing_hardening.append("stats admin if <acl> (admin ACL restriction)")
+
+    if missing_hardening:
+        return Finding(
+            check_id="HAPR-ACL-005",
+            status=Status.PARTIAL,
+            message=(
+                "Stats endpoint has authentication but is missing additional "
+                f"protections: {', '.join(missing_hardening)}."
+            ),
+            evidence=f"Secured sections: {', '.join(secured_sections)}; missing: {', '.join(missing_hardening)}",
+        )
+
     return Finding(
         check_id="HAPR-ACL-005",
         status=Status.PASS,
-        message="Stats endpoint is enabled and secured with authentication.",
+        message="Stats endpoint is enabled and fully secured with authentication, version hiding, and admin ACL.",
         evidence=f"Secured stats sections: {', '.join(secured_sections)}",
     )
 

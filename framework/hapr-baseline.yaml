@@ -34,6 +34,11 @@ metadata:
     medium: 4
     low: 2
     info: 0
+  tiers:
+    baseline: "Minimum viable security - every deployment must pass"
+    level1: "Standard production security"
+    level2: "Enhanced security for sensitive environments"
+    level3: "Maximum hardening for high-security environments"
 
 checks:
 
@@ -44,6 +49,7 @@ checks:
   - id: HAPR-PROC-001
     title: Chroot Enabled
     category: process
+    tier: baseline
     severity: high
     weight: 7
     description: >
@@ -69,6 +75,7 @@ checks:
   - id: HAPR-PROC-002
     title: Runs as Non-Root User
     category: process
+    tier: baseline
     severity: critical
     weight: 10
     description: >
@@ -96,6 +103,7 @@ checks:
   - id: HAPR-PROC-003
     title: Group Directive Set
     category: process
+    tier: level1
     severity: medium
     weight: 4
     description: >
@@ -120,6 +128,7 @@ checks:
   - id: HAPR-PROC-004
     title: Ulimits Configured
     category: process
+    tier: level2
     severity: low
     weight: 2
     description: >
@@ -149,6 +158,7 @@ checks:
   - id: HAPR-TLS-001
     title: Minimum TLS Version 1.2
     category: tls
+    tier: baseline
     severity: critical
     weight: 10
     description: >
@@ -176,6 +186,7 @@ checks:
   - id: HAPR-TLS-002
     title: No Weak Cipher Strings
     category: tls
+    tier: baseline
     severity: critical
     weight: 10
     description: >
@@ -204,6 +215,7 @@ checks:
   - id: HAPR-TLS-003
     title: SSL Default Bind Options Set
     category: tls
+    tier: baseline
     severity: high
     weight: 7
     description: >
@@ -229,6 +241,7 @@ checks:
   - id: HAPR-TLS-004
     title: SSL Default Bind Ciphers Set
     category: tls
+    tier: level1
     severity: high
     weight: 7
     description: >
@@ -255,6 +268,7 @@ checks:
   - id: HAPR-TLS-005
     title: TLS 1.3 Ciphersuites Configured
     category: tls
+    tier: level1
     severity: medium
     weight: 4
     description: >
@@ -280,6 +294,7 @@ checks:
   - id: HAPR-TLS-006
     title: HSTS Header Configured
     category: tls
+    tier: level1
     severity: high
     weight: 7
     description: >
@@ -307,6 +322,7 @@ checks:
   - id: HAPR-TLS-007
     title: DH Parameter Size at Least 2048 Bits
     category: tls
+    tier: level1
     severity: medium
     weight: 4
     description: >
@@ -336,6 +352,7 @@ checks:
   - id: HAPR-ACL-001
     title: ACLs Defined in Frontends
     category: access
+    tier: level1
     severity: medium
     weight: 4
     description: >
@@ -362,6 +379,7 @@ checks:
   - id: HAPR-ACL-002
     title: Admin Paths Restricted
     category: access
+    tier: level2
     severity: high
     weight: 7
     requires_mode: http
@@ -393,6 +411,7 @@ checks:
   - id: HAPR-ACL-003
     title: Rate Limiting Configured
     category: access
+    tier: level1
     severity: high
     weight: 7
     description: >
@@ -420,6 +439,7 @@ checks:
   - id: HAPR-ACL-004
     title: Stick Tables for Connection Tracking
     category: access
+    tier: level1
     severity: medium
     weight: 4
     description: >
@@ -445,20 +465,29 @@ checks:
     check_function: access.check_stick_tables
 
   - id: HAPR-ACL-005
-    title: Stats Access Restricted
+    title: Stats Access Fully Restricted
     category: access
+    tier: level1
     severity: high
     weight: 7
     description: >
       Verify that the HAProxy stats page, if enabled, is protected with
-      authentication and/or IP-based access restrictions.
+      authentication and/or IP-based access restrictions. Also checks that
+      stats hide-version is enabled to prevent version disclosure and that
+      the stats admin directive is restricted by ACL to prevent unauthorized
+      administrative actions on the stats page.
     rationale: >
       The stats page exposes detailed operational information including server
       health, connection counts, error rates, and backend topology. Unrestricted
       access provides attackers with reconnaissance data for targeting backends.
+      Exposing the HAProxy version on the stats page aids further reconnaissance,
+      and an unprotected stats admin interface allows live manipulation of
+      backend server states.
     remediation: >
-      Restrict stats access with authentication and IP filtering. Example:
+      Restrict stats access with authentication, IP filtering, version hiding,
+      and admin ACL. Example:
       stats auth admin:securepassword
+      stats hide-version
       stats admin if LOCALHOST
       acl stats_allowed src 10.0.0.0/8
       http-request deny if !stats_allowed
@@ -475,6 +504,7 @@ checks:
   - id: HAPR-ACL-006
     title: Userlist Passwords Hashed
     category: access
+    tier: level1
     severity: high
     weight: 7
     description: >
@@ -509,6 +539,7 @@ checks:
   - id: HAPR-HDR-001
     title: X-Frame-Options Header Set
     category: headers
+    tier: level1
     severity: medium
     weight: 4
     requires_mode: http
@@ -535,6 +566,7 @@ checks:
   - id: HAPR-HDR-002
     title: Content-Security-Policy Header Set
     category: headers
+    tier: level1
     severity: medium
     weight: 4
     requires_mode: http
@@ -563,6 +595,7 @@ checks:
   - id: HAPR-HDR-003
     title: X-Content-Type-Options Header Set
     category: headers
+    tier: level1
     severity: medium
     weight: 4
     requires_mode: http
@@ -590,6 +623,7 @@ checks:
   - id: HAPR-HDR-004
     title: Referrer-Policy Header Set
     category: headers
+    tier: level1
     severity: low
     weight: 2
     requires_mode: http
@@ -616,6 +650,7 @@ checks:
   - id: HAPR-HDR-005
     title: Permissions-Policy Header Set
     category: headers
+    tier: level2
     severity: low
     weight: 2
     requires_mode: http
@@ -644,6 +679,7 @@ checks:
   - id: HAPR-HDR-006
     title: X-XSS-Protection Not Misconfigured
     category: headers
+    tier: level2
     severity: low
     weight: 2
     requires_mode: http
@@ -676,6 +712,7 @@ checks:
   - id: HAPR-REQ-001
     title: Maximum Request Body Size Limited
     category: request
+    tier: level1
     severity: medium
     weight: 4
     requires_mode: http
@@ -703,6 +740,7 @@ checks:
   - id: HAPR-REQ-002
     title: URL Length Limits Configured
     category: request
+    tier: level2
     severity: low
     weight: 2
     requires_mode: http
@@ -730,6 +768,7 @@ checks:
   - id: HAPR-REQ-003
     title: HTTP Method Filtering
     category: request
+    tier: level1
     severity: medium
     weight: 4
     requires_mode: http
@@ -760,6 +799,7 @@ checks:
   - id: HAPR-REQ-004
     title: Request Header Size Limits
     category: request
+    tier: level2
     severity: low
     weight: 2
     requires_mode: http
@@ -791,6 +831,7 @@ checks:
   - id: HAPR-LOG-001
     title: Log Directive Present
     category: logging
+    tier: baseline
     severity: high
     weight: 7
     description: >
@@ -819,6 +860,7 @@ checks:
   - id: HAPR-LOG-002
     title: Detailed Log Format Configured
     category: logging
+    tier: level1
     severity: medium
     weight: 4
     description: >
@@ -845,40 +887,10 @@ checks:
         - SRG-APP-000096-WSR-000057
     check_function: logging_checks.check_log_format
 
-  - id: HAPR-LOG-003
-    title: Stats Page Secured with Authentication
-    category: logging
-    severity: high
-    weight: 7
-    description: >
-      Verify that the HAProxy statistics page requires authentication and
-      is not exposed without credentials.
-    rationale: >
-      The stats page reveals detailed information about HAProxy internals
-      including server names, health status, connection metrics, and error
-      rates. Without authentication, this information aids attackers in
-      planning targeted attacks against backend infrastructure.
-    remediation: >
-      Enable authentication on the stats page and bind it to a restricted
-      address. Example:
-      stats enable
-      stats uri /haproxy-stats
-      stats auth admin:strong-password-here
-      stats hide-version
-    references:
-      nist:
-        - AC-3
-        - AU-9
-      owasp:
-        - A01:2021 Broken Access Control
-        - A09:2021 Security Logging and Monitoring Failures
-      stig:
-        - SRG-APP-000315-WSR-000004
-    check_function: logging_checks.check_stats_secured
-
   - id: HAPR-LOG-004
     title: Appropriate Log Level
     category: logging
+    tier: level1
     severity: low
     weight: 2
     description: >
@@ -906,6 +918,7 @@ checks:
   - id: HAPR-LOG-005
     title: HTTP or TCP Log Option Enabled
     category: logging
+    tier: level1
     severity: medium
     weight: 4
     description: >
@@ -936,6 +949,7 @@ checks:
   - id: HAPR-INF-001
     title: Server Header Removed
     category: disclosure
+    tier: baseline
     severity: high
     weight: 7
     requires_mode: http
@@ -963,6 +977,7 @@ checks:
   - id: HAPR-INF-002
     title: Custom Error Pages Configured
     category: disclosure
+    tier: level1
     severity: medium
     weight: 4
     description: >
@@ -992,6 +1007,7 @@ checks:
   - id: HAPR-INF-003
     title: Version Information Hidden
     category: disclosure
+    tier: level1
     severity: medium
     weight: 4
     requires_mode: http
@@ -1020,6 +1036,7 @@ checks:
   - id: HAPR-INF-004
     title: Stats Page Version Hidden
     category: disclosure
+    tier: level1
     severity: low
     weight: 2
     description: >
@@ -1049,6 +1066,7 @@ checks:
   - id: HAPR-TMO-001
     title: Client Timeout Set
     category: timeouts
+    tier: baseline
     severity: high
     weight: 7
     description: >
@@ -1076,6 +1094,7 @@ checks:
   - id: HAPR-TMO-002
     title: Server Timeout Set
     category: timeouts
+    tier: baseline
     severity: high
     weight: 7
     description: >
@@ -1102,6 +1121,7 @@ checks:
   - id: HAPR-TMO-003
     title: Connect Timeout Set
     category: timeouts
+    tier: baseline
     severity: high
     weight: 7
     description: >
@@ -1128,8 +1148,9 @@ checks:
   - id: HAPR-TMO-004
     title: HTTP Request Timeout Set
     category: timeouts
-    severity: medium
-    weight: 4
+    tier: baseline
+    severity: high
+    weight: 7
     description: >
       Verify that the HTTP request timeout (timeout http-request) is set
       to limit how long HAProxy waits for a complete HTTP request.
@@ -1154,6 +1175,7 @@ checks:
   - id: HAPR-TMO-005
     title: Timeout Values Are Reasonable
     category: timeouts
+    tier: level1
     severity: medium
     weight: 4
     description: >
@@ -1186,6 +1208,7 @@ checks:
   - id: HAPR-BKD-001
     title: Health Checks Configured
     category: backend
+    tier: level1
     severity: high
     weight: 7
     description: >
@@ -1212,6 +1235,7 @@ checks:
   - id: HAPR-BKD-002
     title: Connection Limits on Backend Servers
     category: backend
+    tier: level2
     severity: medium
     weight: 4
     description: >
@@ -1238,6 +1262,7 @@ checks:
   - id: HAPR-BKD-003
     title: Backend SSL/TLS to Servers
     category: backend
+    tier: level2
     severity: medium
     weight: 4
     description: >
@@ -1265,6 +1290,7 @@ checks:
   - id: HAPR-BKD-004
     title: Cookie Attributes Set Securely
     category: backend
+    tier: level1
     severity: medium
     weight: 4
     description: >
@@ -1292,6 +1318,7 @@ checks:
   - id: HAPR-BKD-005
     title: Retry and Redispatch Configured
     category: backend
+    tier: level2
     severity: low
     weight: 2
     description: >
@@ -1324,6 +1351,7 @@ checks:
   - id: HAPR-FRT-001
     title: Connection Limits on Frontends
     category: frontend
+    tier: level1
     severity: medium
     weight: 4
     description: >
@@ -1349,38 +1377,10 @@ checks:
         - SRG-APP-000246-WSR-000149
     check_function: frontend.check_frontend_connection_limits
 
-  - id: HAPR-FRT-002
-    title: Global Maxconn Reflected in Frontends
-    category: frontend
-    severity: medium
-    weight: 4
-    description: >
-      Verify that maxconn is explicitly set in frontend sections rather than
-      relying solely on the global default.
-    rationale: >
-      Frontends without explicit maxconn inherit the global value, which
-      may be too high for a specific frontend. Explicit per-frontend limits
-      allow fine-grained control over resource allocation and ensure no
-      single frontend can consume all available connections.
-    remediation: >
-      Set maxconn in each frontend based on expected traffic. Example:
-      frontend api
-        maxconn 5000
-      frontend web
-        maxconn 10000
-    references:
-      nist:
-        - SC-5
-        - CM-6
-      owasp:
-        - A05:2021 Security Misconfiguration
-      stig:
-        - SRG-APP-000246-WSR-000149
-    check_function: frontend.check_maxconn_set
-
   - id: HAPR-FRT-003
     title: HTTP to HTTPS Redirect
     category: frontend
+    tier: level1
     severity: high
     weight: 7
     requires_mode: http
@@ -1411,6 +1411,7 @@ checks:
   - id: HAPR-FRT-004
     title: WAF Integration Detected
     category: frontend
+    tier: level2
     severity: medium
     weight: 4
     requires_mode: http
@@ -1439,6 +1440,7 @@ checks:
   - id: HAPR-FRT-005
     title: SQL Injection Protection Rules
     category: frontend
+    tier: level3
     severity: medium
     weight: 4
     requires_mode: http
@@ -1469,6 +1471,7 @@ checks:
   - id: HAPR-FRT-006
     title: XSS Protection Rules
     category: frontend
+    tier: level3
     severity: medium
     weight: 4
     requires_mode: http
@@ -1502,6 +1505,7 @@ checks:
   - id: HAPR-GBL-001
     title: Secure Defaults Section Exists
     category: global_defaults
+    tier: baseline
     severity: high
     weight: 7
     description: >
@@ -1535,6 +1539,7 @@ checks:
   - id: HAPR-GBL-002
     title: Stats Socket Permissions Restricted
     category: global_defaults
+    tier: level1
     severity: high
     weight: 7
     description: >
@@ -1563,6 +1568,7 @@ checks:
   - id: HAPR-GBL-003
     title: DNS Resolver Configured
     category: global_defaults
+    tier: level2
     severity: low
     weight: 2
     description: >
@@ -1595,6 +1601,7 @@ checks:
   - id: HAPR-GBL-004
     title: Global Maxconn Set
     category: global_defaults
+    tier: baseline
     severity: medium
     weight: 4
     description: >
@@ -1620,32 +1627,6 @@ checks:
         - SRG-APP-000246-WSR-000149
     check_function: global_defaults.check_global_maxconn
 
-  - id: HAPR-GBL-005
-    title: Default DH Parameter Size Set
-    category: global_defaults
-    severity: medium
-    weight: 4
-    description: >
-      Verify that tune.ssl.default-dh-param is explicitly configured in the
-      global section to ensure adequate Diffie-Hellman key exchange strength.
-    rationale: >
-      HAProxy defaults to a 1024-bit DH parameter if not explicitly set,
-      which is considered weak and vulnerable to precomputation attacks
-      (Logjam). Explicit configuration to 2048 bits or higher is required
-      for compliance with current cryptographic standards.
-    remediation: >
-      Set the DH parameter size in the global section. Example:
-      tune.ssl.default-dh-param 2048
-    references:
-      nist:
-        - SC-12
-        - SC-13
-      owasp:
-        - A02:2021 Cryptographic Failures
-      stig:
-        - SRG-APP-000179-WSR-000110
-    check_function: global_defaults.check_ssl_dh_param
-
   # ---------------------------------------------------------------------------
   # HAPR-SCAN: Live TLS Scan
   # ---------------------------------------------------------------------------
@@ -1653,6 +1634,7 @@ checks:
   - id: HAPR-SCAN-001
     title: No Deprecated TLS Versions Accepted
     category: tls_live
+    tier: level2
     severity: critical
     weight: 10
     description: >
@@ -1685,6 +1667,7 @@ checks:
   - id: HAPR-SCAN-002
     title: No Weak Ciphers Negotiated
     category: tls_live
+    tier: level2
     severity: critical
     weight: 10
     description: >
@@ -1715,6 +1698,7 @@ checks:
   - id: HAPR-SCAN-003
     title: Valid Certificate Chain
     category: tls_live
+    tier: level2
     severity: high
     weight: 7
     description: >
@@ -1744,6 +1728,7 @@ checks:
   - id: HAPR-SCAN-004
     title: Certificate Not Expired
     category: tls_live
+    tier: level3
     severity: critical
     weight: 10
     description: >
@@ -1773,6 +1758,7 @@ checks:
   - id: HAPR-SCAN-005
     title: No Known TLS Vulnerabilities
     category: tls_live
+    tier: level3
     severity: critical
     weight: 10
     description: >
@@ -1805,6 +1791,7 @@ checks:
   - id: HAPR-SCAN-006
     title: Secure Renegotiation Supported
     category: tls_live
+    tier: level2
     severity: medium
     weight: 4
     description: >
@@ -1839,6 +1826,7 @@ checks:
   - id: HAPR-CVE-001
     title: No Critical CVEs for Detected Version
     category: cve
+    tier: baseline
     severity: critical
     weight: 10
     description: >
@@ -1870,6 +1858,7 @@ checks:
   - id: HAPR-CVE-002
     title: No High Severity CVEs for Detected Version
     category: cve
+    tier: level3
     severity: high
     weight: 7
     description: >
@@ -1900,6 +1889,7 @@ checks:
   - id: HAPR-CVE-003
     title: HTTP Request Smuggling CVE-2021-40346
     category: cve
+    tier: level3
     severity: critical
     weight: 10
     description: >

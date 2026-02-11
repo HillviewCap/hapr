@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import os
+import re
 
 from ...models import Finding, HAProxyConfig, Status
 
 # Directories considered world-writable / insecure for socket placement
 _INSECURE_SOCKET_DIRS = ("/tmp", "/var/tmp", "/dev/shm")
+
+# Regex for IPv4 addresses (e.g. 192.168.1.1)
+_IPV4_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 
 
 def check_secure_defaults(config: HAProxyConfig) -> Finding:
@@ -125,12 +129,41 @@ def check_stats_socket_permissions(config: HAProxyConfig) -> Finding:
         )
 
 
+def _is_ip_address(address: str) -> bool:
+    """Return True if *address* looks like an IPv4 or IPv6 literal."""
+    if not address:
+        return False
+    # IPv6 addresses contain colons (e.g. ::1, fe80::1, [::1])
+    if ":" in address:
+        return True
+    # IPv4 addresses are digits and dots (e.g. 192.168.1.1)
+    return bool(_IPV4_RE.match(address))
+
+
 def check_dns_resolver(config: HAProxyConfig) -> Finding:
     """HAPR-GBL-003: Check if DNS resolvers are configured.
 
     DNS resolvers allow HAProxy to perform server name resolution dynamically.
+    Only relevant when backend servers use hostnames rather than IP addresses.
+    If all servers use static IPs, DNS resolution is not needed.
     """
-    # Look for resolvers section references in server lines
+    # First, determine if any server uses a hostname (not an IP address)
+    hostname_servers: list[str] = []
+    for server in config.all_servers:
+        addr = server.address
+        if addr and not _is_ip_address(addr):
+            hostname_servers.append(f"{server.name} ({addr})")
+
+    # If no servers use hostnames, DNS resolver is not needed
+    if not hostname_servers:
+        return Finding(
+            check_id="HAPR-GBL-003",
+            status=Status.NOT_APPLICABLE,
+            message="All backend servers use static IP addresses; DNS resolver not required.",
+            evidence="No server addresses requiring DNS resolution found.",
+        )
+
+    # Servers use hostnames — check if resolvers are configured
     has_resolvers = False
     for server in config.all_servers:
         if "resolvers" in server.options:
@@ -148,15 +181,18 @@ def check_dns_resolver(config: HAProxyConfig) -> Finding:
         return Finding(
             check_id="HAPR-GBL-003",
             status=Status.PASS,
-            message="DNS resolvers are configured",
-            evidence="Resolver references found in configuration",
+            message="DNS resolvers are configured for hostname-based servers.",
+            evidence=f"Resolver references found; hostname servers: {', '.join(hostname_servers[:5])}",
         )
     else:
         return Finding(
             check_id="HAPR-GBL-003",
             status=Status.FAIL,
-            message="No DNS resolvers configured — server addresses are resolved only at startup",
-            evidence="No 'resolvers' directive found",
+            message=(
+                "Servers reference hostnames but no DNS resolvers are configured — "
+                "server addresses are resolved only at startup."
+            ),
+            evidence=f"Hostname servers without resolvers: {', '.join(hostname_servers[:5])}",
         )
 
 
@@ -179,6 +215,7 @@ def check_global_maxconn(config: HAProxyConfig) -> Finding:
         )
 
 
+# NOTE: This function is no longer referenced in the baseline YAML (duplicate of tls.check_dh_param_size)
 def check_ssl_dh_param(config: HAProxyConfig) -> Finding:
     """HAPR-GBL-005: Check tune.ssl.default-dh-param is set to >= 2048."""
     dh_directives = config.global_section.get("tune.ssl.default-dh-param")

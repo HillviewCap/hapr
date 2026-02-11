@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import logging
 from typing import Any
 
 from ..models import (
@@ -16,6 +17,12 @@ from ..models import (
     Status,
 )
 from .baseline import get_checks, load_baseline
+
+logger = logging.getLogger(__name__)
+
+# Tier hierarchy — lower index means lower tier.
+# A tier includes itself and all tiers with a lower index.
+TIER_HIERARCHY: list[str] = ["baseline", "level1", "level2", "level3"]
 
 # Category display names
 CATEGORY_NAMES: dict[str, str] = {
@@ -35,11 +42,31 @@ CATEGORY_NAMES: dict[str, str] = {
 }
 
 
+def _get_allowed_tiers(tier: str | None) -> set[str] | None:
+    """Return the set of tiers to include for a given tier filter.
+
+    When *tier* is ``None`` all checks run (returns ``None``).
+    Otherwise, the returned set contains *tier* and every tier below it
+    in the hierarchy.
+    """
+    if tier is None:
+        return None
+
+    tier_lower = tier.lower()
+    if tier_lower not in TIER_HIERARCHY:
+        logger.warning("Unknown tier %r — running all checks", tier)
+        return None
+
+    cutoff = TIER_HIERARCHY.index(tier_lower)
+    return set(TIER_HIERARCHY[: cutoff + 1])
+
+
 def run_audit(
     config: HAProxyConfig,
     baseline_path: str | None = None,
     scan_results: list[ScanResult] | None = None,
     cve_results: CVECheckResult | None = None,
+    tier: str | None = None,
 ) -> AuditResult:
     """Execute all baseline checks and compute scores.
 
@@ -53,9 +80,16 @@ def run_audit(
         TLS scan results (None if scanning was not performed).
     cve_results:
         CVE check results (None if version detection was not performed).
+    tier:
+        Optional tier filter.  When set, only checks at this tier and
+        all lower tiers are executed.  The hierarchy is:
+        ``baseline < level1 < level2 < level3``.
+        ``None`` means run all checks regardless of tier.
     """
     baseline = load_baseline(baseline_path)
     checks = get_checks(baseline)
+
+    allowed_tiers = _get_allowed_tiers(tier)
 
     scanner_available = scan_results is not None and len(scan_results) > 0
     version_available = cve_results is not None and cve_results.version != ""
@@ -64,6 +98,13 @@ def run_audit(
     has_http = _config_has_http_mode(config)
 
     for check_def in checks:
+        # --- Tier filtering ---------------------------------------------------
+        check_tier = check_def.get("tier")
+        if allowed_tiers is not None and check_tier is not None:
+            if check_tier.lower() not in allowed_tiers:
+                continue
+        # Checks without a tier field always run (regardless of filter).
+
         requires = check_def.get("requires")
 
         # Skip checks whose dependencies are not met
@@ -84,6 +125,7 @@ def run_audit(
                 category=check_def.get("category", ""),
                 remediation=check_def.get("remediation", ""),
                 weight=check_def.get("weight", 0),
+                tier=check_tier,
             ))
             continue
 
@@ -174,6 +216,7 @@ def _execute_check(
             category=check_def.get("category", ""),
             remediation=check_def.get("remediation", ""),
             weight=weight,
+            tier=check_def.get("tier"),
         )
 
     try:
@@ -194,6 +237,7 @@ def _execute_check(
             category=check_def.get("category", ""),
             remediation=check_def.get("remediation", ""),
             weight=weight,
+            tier=check_def.get("tier"),
         )
 
     # Enrich the finding with baseline metadata
@@ -203,6 +247,7 @@ def _execute_check(
     finding.title = check_def.get("title", finding.title)
     finding.category = check_def.get("category", finding.category)
     finding.remediation = check_def.get("remediation", finding.remediation)
+    finding.tier = check_def.get("tier")
 
     return finding
 

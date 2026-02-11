@@ -131,6 +131,7 @@ def check_log_format(config: HAProxyConfig) -> Finding:
     )
 
 
+# NOTE: This function is no longer referenced in the baseline YAML (consolidated into access.check_stats_access_restricted)
 def check_stats_secured(config: HAProxyConfig) -> Finding:
     """HAPR-LOG-003: Check that the stats endpoint is properly secured.
 
