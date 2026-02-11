@@ -248,13 +248,14 @@ def check_log_level(config: HAProxyConfig) -> Finding:
 
         log <target> <facility> [<level>]
 
-    Running with ``debug`` level in production generates excessive output
-    and may degrade performance.  This check examines the log directive
-    arguments for the specified level.
+    This check examines the log directive arguments for the specified level.
 
-    * PASS if the level is one of: info, notice, warning (warn), err.
-    * PARTIAL if the level is ``debug``.
-    * FAIL if no log directives are found (i.e. no level can be determined).
+    * PASS if the level is one of: info, notice, warning, warn (good for security monitoring).
+    * PASS if no explicit level is specified (HAProxy defaults are acceptable).
+    * PARTIAL if the level is ``debug`` (too verbose for production).
+    * PARTIAL if the level is ``emerg``, ``alert``, ``crit``, ``err``, or ``error``
+      (too restrictive -- will miss security-relevant events).
+    * FAIL if no log directives are found at all.
     """
     log_directives = config.global_section.get("log")
 
@@ -270,11 +271,17 @@ def check_log_level(config: HAProxyConfig) -> Finding:
             evidence="No log directives in global section.",
         )
 
-    # Acceptable production levels (HAProxy recognises both 'warn' and 'warning')
-    good_levels = {"info", "notice", "warning", "warn", "err", "error", "crit", "alert", "emerg"}
+    # Levels that capture enough security events
+    good_levels = {"info", "notice", "warning", "warn"}
+    # Levels that are too restrictive for security monitoring
+    restrictive_levels = {"emerg", "alert", "crit", "err", "error"}
+
     debug_found = False
+    restrictive_found = False
     good_found = False
     evidence_parts: list[str] = []
+
+    all_known_levels = good_levels | restrictive_levels | {"debug"}
 
     for directive in log_directives:
         # Typical format: "127.0.0.1:514 local0 info" or "/dev/log local0"
@@ -284,22 +291,24 @@ def check_log_level(config: HAProxyConfig) -> Finding:
         # The level, if present, is usually the third token (index 2)
         # or sometimes the second token in shorter forms.  We search all
         # tokens for a recognised level keyword.
-        all_levels = good_levels | {"debug"}
         for token in tokens:
-            if token.lower() in all_levels:
+            if token.lower() in all_known_levels:
                 detected_level = token.lower()
                 break
 
         if detected_level == "debug":
             debug_found = True
             evidence_parts.append(f"log {directive.args} (level: debug)")
-        elif detected_level:
+        elif detected_level in restrictive_levels:
+            restrictive_found = True
+            evidence_parts.append(f"log {directive.args} (level: {detected_level})")
+        elif detected_level in good_levels:
             good_found = True
             evidence_parts.append(f"log {directive.args} (level: {detected_level})")
         else:
             # No explicit level -- HAProxy defaults to the facility's
-            # default, which is usually acceptable.  We count it as
-            # having no explicit level.
+            # default, which is usually acceptable.  We count it as good.
+            good_found = True
             evidence_parts.append(f"log {directive.args} (no explicit level)")
 
     if debug_found:
@@ -319,6 +328,18 @@ def check_log_level(config: HAProxyConfig) -> Finding:
             check_id="HAPR-LOG-004",
             status=Status.PASS,
             message="Log level is set to an appropriate production level.",
+            evidence="; ".join(evidence_parts),
+        )
+
+    if restrictive_found:
+        return Finding(
+            check_id="HAPR-LOG-004",
+            status=Status.PARTIAL,
+            message=(
+                "Log level is too restrictive for security monitoring. "
+                "Levels like emerg, alert, crit, and err will miss most "
+                "security-relevant events. Consider using 'info' or 'notice' instead."
+            ),
             evidence="; ".join(evidence_parts),
         )
 

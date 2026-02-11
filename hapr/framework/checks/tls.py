@@ -314,13 +314,20 @@ def check_ssl_default_bind_ciphersuites(config: HAProxyConfig) -> Finding:
 # HAPR-TLS-006  HSTS header
 # ---------------------------------------------------------------------------
 
+_HSTS_MAX_AGE_RE = re.compile(r"max-age\s*=\s*(\d+)", re.IGNORECASE)
+
+# 1 year in seconds — considered the minimum for strong HSTS
+_HSTS_STRONG_MAX_AGE = 31536000
+
+
 def check_hsts_configured(config: HAProxyConfig) -> Finding:
     """Check that a Strict-Transport-Security (HSTS) header is configured.
 
     Looks for ``http-response set-header Strict-Transport-Security`` in any
     frontend, listen, or defaults section.
 
-    Returns PASS if found anywhere, FAIL if not.
+    Returns PASS if max-age >= 31536000 (1 year), PARTIAL if max-age is
+    present but too short or zero, FAIL if the header is not set at all.
     """
     hsts_pattern = re.compile(
         r"^Strict-Transport-Security\b", re.IGNORECASE
@@ -340,11 +347,49 @@ def check_hsts_configured(config: HAProxyConfig) -> Finding:
                 header_rest = d.args[len("set-header "):]
                 if hsts_pattern.match(header_rest):
                     section_name = getattr(section, "name", "defaults")
+                    # Extract and validate max-age value
+                    max_age_match = _HSTS_MAX_AGE_RE.search(header_rest)
+                    if max_age_match:
+                        max_age = int(max_age_match.group(1))
+                        if max_age >= _HSTS_STRONG_MAX_AGE:
+                            return Finding(
+                                check_id="HAPR-TLS-006",
+                                status=Status.PASS,
+                                message=(
+                                    f"HSTS header is configured in section "
+                                    f"'{section_name}' with strong max-age "
+                                    f"({max_age} seconds)."
+                                ),
+                                evidence=f"http-response {d.args}",
+                            )
+                        if max_age == 0:
+                            return Finding(
+                                check_id="HAPR-TLS-006",
+                                status=Status.PARTIAL,
+                                message=(
+                                    f"HSTS header in section '{section_name}' has "
+                                    "max-age=0, which effectively disables HSTS."
+                                ),
+                                evidence=f"http-response {d.args}",
+                            )
+                        # 0 < max_age < _HSTS_STRONG_MAX_AGE
+                        return Finding(
+                            check_id="HAPR-TLS-006",
+                            status=Status.PARTIAL,
+                            message=(
+                                f"HSTS header in section '{section_name}' has a "
+                                f"weak max-age ({max_age} seconds). Recommended "
+                                f"minimum is {_HSTS_STRONG_MAX_AGE} (1 year)."
+                            ),
+                            evidence=f"http-response {d.args}",
+                        )
+                    # Header found but no max-age — treat as PARTIAL
                     return Finding(
                         check_id="HAPR-TLS-006",
-                        status=Status.PASS,
+                        status=Status.PARTIAL,
                         message=(
-                            f"HSTS header is configured in section '{section_name}'."
+                            f"HSTS header is configured in section "
+                            f"'{section_name}' but no max-age value was found."
                         ),
                         evidence=f"http-response {d.args}",
                     )

@@ -23,34 +23,67 @@ _WEAK_PASSWORDS = {
 
 
 def check_acls_defined(config: HAProxyConfig) -> Finding:
-    """HAPR-ACL-001: Check that at least some frontends or listens have ACL directives.
+    """HAPR-ACL-001: Check per-frontend/listen ACL coverage.
 
     ACLs are the primary mechanism in HAProxy for making routing and access
-    decisions.  A configuration with no ACLs at all typically indicates that
-    no traffic-level access control is in place.
+    decisions.  This check validates that every frontend and listen section
+    has at least one ACL directive defined.
 
-    Returns PASS if any frontend or listen section contains at least one ``acl``
-    directive.  Returns FAIL if no ACLs are found anywhere.
+    Returns N/A if there are no frontends or listens.
+    Returns PASS if ALL frontends/listens have ACLs.
+    Returns PARTIAL if SOME (but not all) frontends/listens have ACLs.
+    Returns FAIL if NO frontends/listens have ACLs.
     """
+    all_sections = config.all_frontends_and_listens
+
+    if not all_sections:
+        return Finding(
+            check_id="HAPR-ACL-001",
+            status=Status.NOT_APPLICABLE,
+            message="No frontend or listen sections found in the configuration.",
+            evidence="No frontend or listen sections to evaluate.",
+        )
+
     sections_with_acls: list[str] = []
+    sections_without_acls: list[str] = []
 
-    for section in config.all_frontends_and_listens:
+    for section in all_sections:
+        label = section.name or "(unnamed)"
         if section.acls:
-            sections_with_acls.append(section.name or "(unnamed)")
+            sections_with_acls.append(label)
+        else:
+            sections_without_acls.append(label)
 
-    if sections_with_acls:
+    total = len(all_sections)
+    with_acls = len(sections_with_acls)
+
+    if with_acls == total:
         return Finding(
             check_id="HAPR-ACL-001",
             status=Status.PASS,
-            message="ACL directives are defined in one or more frontends/listens.",
+            message="All frontends/listens have ACL directives defined.",
             evidence=f"Sections with ACLs: {', '.join(sections_with_acls)}",
+        )
+
+    if with_acls > 0:
+        return Finding(
+            check_id="HAPR-ACL-001",
+            status=Status.PARTIAL,
+            message=(
+                f"Only {with_acls}/{total} frontends/listens have ACL directives. "
+                "All frontends should define ACLs for proper access control."
+            ),
+            evidence=(
+                f"With ACLs: {', '.join(sections_with_acls)}; "
+                f"Missing ACLs: {', '.join(sections_without_acls)}"
+            ),
         )
 
     return Finding(
         check_id="HAPR-ACL-001",
         status=Status.FAIL,
         message="No ACL directives found in any frontend or listen section.",
-        evidence="Searched all frontend and listen sections; none contain 'acl' directives.",
+        evidence=f"Missing ACLs: {', '.join(sections_without_acls)}",
     )
 
 

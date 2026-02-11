@@ -12,6 +12,7 @@ from hapr.framework.checks.access import check_stats_access_restricted
 from hapr.framework.checks.backend import check_backend_ssl
 from hapr.framework.checks.frontend import check_http_to_https_redirect
 from hapr.framework.checks.logging_checks import check_log_format
+from hapr.framework.checks import request, logging_checks, access
 from hapr.framework.engine import run_audit, _config_has_http_mode
 
 
@@ -512,3 +513,314 @@ listen stats
         assert finding.status == Status.PARTIAL
         assert "too short" in finding.evidence
         assert "common weak" in finding.evidence
+
+
+# ---------------------------------------------------------------------------
+# Header value validation (Phase 2)
+# ---------------------------------------------------------------------------
+
+from hapr.framework.checks import headers
+from hapr.framework.checks.tls import check_hsts_configured
+
+
+class TestHeaderValueValidation:
+    """Tests for Phase 2 header value validation."""
+
+    def test_x_frame_options_deny_passes(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header X-Frame-Options DENY
+""")
+        finding = headers.check_x_frame_options(config)
+        assert finding.status == Status.PASS
+
+    def test_x_frame_options_sameorigin_passes(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header X-Frame-Options SAMEORIGIN
+""")
+        finding = headers.check_x_frame_options(config)
+        assert finding.status == Status.PASS
+
+    def test_x_frame_options_invalid_value_partial(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header X-Frame-Options ALLOWALL
+""")
+        finding = headers.check_x_frame_options(config)
+        assert finding.status == Status.PARTIAL
+
+    def test_x_frame_options_missing_fails(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = headers.check_x_frame_options(config)
+        assert finding.status == Status.FAIL
+
+    def test_x_content_type_nosniff_passes(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header X-Content-Type-Options nosniff
+""")
+        finding = headers.check_x_content_type_options(config)
+        assert finding.status == Status.PASS
+
+    def test_x_content_type_wrong_value_partial(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header X-Content-Type-Options nofollow
+""")
+        finding = headers.check_x_content_type_options(config)
+        assert finding.status == Status.PARTIAL
+
+    def test_x_content_type_missing_fails(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = headers.check_x_content_type_options(config)
+        assert finding.status == Status.FAIL
+
+    def test_csp_with_unsafe_inline_partial(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header Content-Security-Policy "default-src 'self' 'unsafe-inline'"
+""")
+        finding = headers.check_csp_header(config)
+        assert finding.status == Status.PARTIAL
+
+    def test_csp_with_unsafe_eval_partial(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header Content-Security-Policy "default-src 'self' 'unsafe-eval'"
+""")
+        finding = headers.check_csp_header(config)
+        assert finding.status == Status.PARTIAL
+
+    def test_csp_with_wildcard_source_partial(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header Content-Security-Policy "default-src *"
+""")
+        finding = headers.check_csp_header(config)
+        assert finding.status == Status.PARTIAL
+
+    def test_csp_strict_policy_passes(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header Content-Security-Policy "default-src 'self'; script-src 'self'"
+""")
+        finding = headers.check_csp_header(config)
+        assert finding.status == Status.PASS
+
+    def test_csp_missing_fails(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = headers.check_csp_header(config)
+        assert finding.status == Status.FAIL
+
+    def test_referrer_policy_unsafe_url_partial(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header Referrer-Policy unsafe-url
+""")
+        finding = headers.check_referrer_policy(config)
+        assert finding.status == Status.PARTIAL
+
+    def test_referrer_policy_strict_origin_passes(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header Referrer-Policy strict-origin-when-cross-origin
+""")
+        finding = headers.check_referrer_policy(config)
+        assert finding.status == Status.PASS
+
+    def test_referrer_policy_no_referrer_passes(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header Referrer-Policy no-referrer
+""")
+        finding = headers.check_referrer_policy(config)
+        assert finding.status == Status.PASS
+
+    def test_referrer_policy_missing_fails(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = headers.check_referrer_policy(config)
+        assert finding.status == Status.FAIL
+
+
+class TestHSTSMaxAgeValidation:
+    """Tests for HSTS max-age value validation."""
+
+    def test_hsts_strong_max_age_passes(self):
+        config = parse_string(
+            "defaults\n"
+            "    mode http\n"
+            "    http-response set-header Strict-Transport-Security max-age=31536000;\\ includeSubDomains\n"
+        )
+        finding = check_hsts_configured(config)
+        assert finding.status == Status.PASS
+
+    def test_hsts_weak_max_age_partial(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header Strict-Transport-Security max-age=86400
+""")
+        finding = check_hsts_configured(config)
+        assert finding.status == Status.PARTIAL
+
+    def test_hsts_zero_max_age_partial(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header Strict-Transport-Security max-age=0
+""")
+        finding = check_hsts_configured(config)
+        assert finding.status == Status.PARTIAL
+
+    def test_hsts_missing_fails(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = check_hsts_configured(config)
+        assert finding.status == Status.FAIL
+
+    def test_hsts_very_large_max_age_passes(self):
+        config = parse_string(
+            "defaults\n"
+            "    mode http\n"
+            "    http-response set-header Strict-Transport-Security max-age=63072000;\\ includeSubDomains;\\ preload\n"
+        )
+        finding = check_hsts_configured(config)
+        assert finding.status == Status.PASS
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: ACL-001 per-frontend coverage
+# ---------------------------------------------------------------------------
+
+class TestACLPerFrontendCoverage:
+    """Tests for Phase 2 ACL-001 per-frontend validation."""
+
+    def test_all_frontends_have_acls_passes(self):
+        config = parse_string("""
+frontend web
+    bind *:80
+    acl is_admin path_beg /admin
+    use_backend admin if is_admin
+    default_backend app
+
+frontend api
+    bind *:8080
+    acl is_health path /health
+    default_backend app
+""")
+        finding = access.check_acls_defined(config)
+        assert finding.status == Status.PASS
+
+    def test_some_frontends_missing_acls_partial(self):
+        config = parse_string("""
+frontend web
+    bind *:80
+    acl is_admin path_beg /admin
+    default_backend app
+
+frontend api
+    bind *:8080
+    default_backend app
+""")
+        finding = access.check_acls_defined(config)
+        assert finding.status == Status.PARTIAL
+
+    def test_no_frontends_have_acls_fails(self):
+        config = parse_string("""
+frontend web
+    bind *:80
+    default_backend app
+""")
+        finding = access.check_acls_defined(config)
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: REQ-002 and REQ-004 false positive fixes
+# ---------------------------------------------------------------------------
+
+class TestREQFixedFalsePositives:
+    """Tests for Phase 2 REQ-002 and REQ-004 false positive fixes."""
+
+    def test_req002_tune_maxrewrite_alone_not_pass(self):
+        config = parse_string("""
+global
+    tune.maxrewrite 1024
+""")
+        finding = request.check_url_length_limits(config)
+        assert finding.status == Status.FAIL
+
+    def test_req004_tune_http_maxhdr_passes(self):
+        config = parse_string("""
+global
+    tune.http.maxhdr 101
+""")
+        finding = request.check_request_header_limits(config)
+        assert finding.status == Status.PASS
+
+    def test_req004_tune_bufsize_alone_partial(self):
+        config = parse_string("""
+global
+    tune.bufsize 16384
+""")
+        finding = request.check_request_header_limits(config)
+        assert finding.status == Status.PARTIAL
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: LOG-004 emerg level restriction
+# ---------------------------------------------------------------------------
+
+class TestLogLevelEmergRestriction:
+    """Tests for Phase 2 LOG-004 emerg level fix."""
+
+    def test_emerg_level_returns_partial(self):
+        config = parse_string("""
+global
+    log 127.0.0.1:514 local0 emerg
+""")
+        finding = logging_checks.check_log_level(config)
+        assert finding.status == Status.PARTIAL
+
+    def test_info_level_passes(self):
+        config = parse_string("""
+global
+    log 127.0.0.1:514 local0 info
+""")
+        finding = logging_checks.check_log_level(config)
+        assert finding.status == Status.PASS
+
+    def test_crit_level_returns_partial(self):
+        config = parse_string("""
+global
+    log 127.0.0.1:514 local0 crit
+""")
+        finding = logging_checks.check_log_level(config)
+        assert finding.status == Status.PARTIAL

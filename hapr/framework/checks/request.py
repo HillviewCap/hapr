@@ -90,7 +90,10 @@ def check_url_length_limits(config: HAProxyConfig) -> Finding:
 
     * ``http-request deny if { url_len gt ...}`` rules.
     * ``http-request deny if { path_len gt ...}`` rules.
-    * ``tune.maxrewrite`` in the global section.
+    * ``tune.http.maxuri`` in the global section.
+
+    Note: ``tune.maxrewrite`` controls buffer space for header rewriting,
+    not URL length, and is therefore excluded from this check.
 
     Returns PASS if any URL/path length restriction is found, FAIL otherwise.
     """
@@ -121,10 +124,10 @@ def check_url_length_limits(config: HAProxyConfig) -> Finding:
                     f"'{section.name or 'unnamed'}': http-request {directive.args}"
                 )
 
-    # Check for tune.maxrewrite in global
-    tune_maxrewrite = config.global_section.get_value("tune.maxrewrite")
-    if tune_maxrewrite:
-        evidence_parts.append(f"Global tune.maxrewrite set to {tune_maxrewrite}")
+    # Check for tune.http.maxuri in global (real URL length limit)
+    tune_http_maxuri = config.global_section.get_value("tune.http.maxuri")
+    if tune_http_maxuri:
+        evidence_parts.append(f"Global tune.http.maxuri set to {tune_http_maxuri}")
 
     if evidence_parts:
         return Finding(
@@ -141,9 +144,9 @@ def check_url_length_limits(config: HAProxyConfig) -> Finding:
             "No URL length restrictions found. Consider adding "
             "'http-request deny if { url_len gt <limit> }' or "
             "'http-request deny if { path_len gt <limit> }' rules, or "
-            "setting 'tune.maxrewrite' in the global section."
+            "setting 'tune.http.maxuri' in the global section."
         ),
-        evidence="No url_len, path_len deny rules, or tune.maxrewrite directive detected.",
+        evidence="No url_len, path_len deny rules, or tune.http.maxuri directive detected.",
     )
 
 
@@ -229,33 +232,43 @@ def check_request_header_limits(config: HAProxyConfig) -> Finding:
     that may be too generous and allow oversized headers.  This check looks
     for the following global tuning parameters:
 
-    * ``tune.maxrewrite`` -- controls the amount of buffer space reserved
-      for header rewriting.
-    * ``tune.bufsize`` -- sets the global buffer size, which constrains
-      the total size of request/response headers and body.
     * ``tune.http.maxhdr`` -- limits the number of headers in a request.
+    * ``tune.bufsize`` -- sets the global buffer size, which provides an
+      implicit constraint on total header size (PARTIAL).
 
-    Returns PASS if any header size tuning parameter is found, FAIL otherwise.
+    Note: ``tune.maxrewrite`` controls buffer space reserved for header
+    rewriting, not request header limits, and is excluded from this check.
+
+    Returns PASS if ``tune.http.maxhdr`` is set.
+    Returns PARTIAL if only ``tune.bufsize`` is set (implicit limit).
+    Returns FAIL if neither is set.
     """
     evidence_parts: list[str] = []
-
-    tune_maxrewrite = config.global_section.get_value("tune.maxrewrite")
-    if tune_maxrewrite:
-        evidence_parts.append(f"tune.maxrewrite = {tune_maxrewrite}")
-
-    tune_bufsize = config.global_section.get_value("tune.bufsize")
-    if tune_bufsize:
-        evidence_parts.append(f"tune.bufsize = {tune_bufsize}")
 
     tune_http_maxhdr = config.global_section.get_value("tune.http.maxhdr")
     if tune_http_maxhdr:
         evidence_parts.append(f"tune.http.maxhdr = {tune_http_maxhdr}")
 
-    if evidence_parts:
+    tune_bufsize = config.global_section.get_value("tune.bufsize")
+    if tune_bufsize:
+        evidence_parts.append(f"tune.bufsize = {tune_bufsize}")
+
+    if tune_http_maxhdr:
         return Finding(
             check_id="HAPR-REQ-004",
             status=Status.PASS,
             message="Request header size tuning is configured in the global section.",
+            evidence="Global settings: " + ", ".join(evidence_parts),
+        )
+
+    if tune_bufsize:
+        return Finding(
+            check_id="HAPR-REQ-004",
+            status=Status.PARTIAL,
+            message=(
+                "tune.bufsize is set which provides an implicit header size limit, "
+                "but tune.http.maxhdr should also be set for explicit header count control."
+            ),
             evidence="Global settings: " + ", ".join(evidence_parts),
         )
 
@@ -264,9 +277,9 @@ def check_request_header_limits(config: HAProxyConfig) -> Finding:
         status=Status.FAIL,
         message=(
             "No request header size tuning found in the global section. "
-            "Consider setting 'tune.maxrewrite', 'tune.bufsize', or "
-            "'tune.http.maxhdr' to limit header sizes and mitigate "
-            "oversized-header attacks."
+            "Consider setting 'tune.http.maxhdr' to limit the number of "
+            "request headers and 'tune.bufsize' to constrain total header "
+            "size to mitigate oversized-header attacks."
         ),
-        evidence="No tune.maxrewrite, tune.bufsize, or tune.http.maxhdr directives found in global.",
+        evidence="No tune.http.maxhdr or tune.bufsize directives found in global.",
     )
