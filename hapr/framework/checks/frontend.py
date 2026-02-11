@@ -418,3 +418,122 @@ def check_xss_protection(config: HAProxyConfig) -> Finding:
             "rules with XSS patterns; none found."
         ),
     )
+
+
+def check_xff_configured(config: HAProxyConfig) -> Finding:
+    """HAPR-FRT-007: Check that option forwardfor is configured.
+
+    The ``option forwardfor`` directive instructs HAProxy to add or append
+    the client IP address to the ``X-Forwarded-For`` header.  Without it,
+    backend servers cannot determine the real client IP when HAProxy is
+    acting as a reverse proxy.
+
+    Returns PASS if ``option forwardfor`` is found in at least one
+    frontend, listen, or defaults section.  FAIL otherwise.
+    """
+    evidence_lines: list[str] = []
+
+    all_sections = (
+        list(config.all_frontends_and_listens)
+        + list(config.defaults)
+    )
+
+    for section in all_sections:
+        section_name = getattr(section, "name", "unnamed") or "unnamed"
+        for directive in section.get("option"):
+            if "forwardfor" in directive.args.lower():
+                evidence_lines.append(
+                    f"[{section_name}] option {directive.args} "
+                    f"(line {directive.line_number})"
+                )
+
+    if evidence_lines:
+        return Finding(
+            check_id="HAPR-FRT-007",
+            status=Status.PASS,
+            message="option forwardfor is configured to pass real client IP to backends.",
+            evidence="\n".join(evidence_lines),
+        )
+
+    return Finding(
+        check_id="HAPR-FRT-007",
+        status=Status.FAIL,
+        message=(
+            "option forwardfor is not configured. Backend servers will not "
+            "receive the real client IP address. Add 'option forwardfor' to "
+            "frontend or defaults sections."
+        ),
+        evidence=(
+            "Searched all frontend, listen, and defaults sections for "
+            "option forwardfor; not found."
+        ),
+    )
+
+
+# Wildcard bind addresses that indicate binding to all interfaces.
+_WILDCARD_ADDRESSES = {"", "*", "0.0.0.0", "::", "::0"}
+
+
+def check_bind_address_restrictions(config: HAProxyConfig) -> Finding:
+    """HAPR-FRT-008: Check that frontend bind addresses are not wildcard.
+
+    Binding to ``0.0.0.0``, ``*``, or ``::`` exposes the service on all
+    network interfaces, which may include internal management networks.
+    Using specific bind addresses limits the attack surface.
+
+    Returns PASS if all binds use specific addresses, PARTIAL if some
+    binds use specific addresses but others are wildcard, FAIL if all
+    binds use wildcard addresses, N/A if no bind lines exist.
+    """
+    all_binds = config.all_binds
+
+    if not all_binds:
+        return Finding(
+            check_id="HAPR-FRT-008",
+            status=Status.NOT_APPLICABLE,
+            message="No bind lines found in frontends or listen sections.",
+            evidence="Configuration contains no bind directives to evaluate.",
+        )
+
+    specific_binds: list[str] = []
+    wildcard_binds: list[str] = []
+
+    for bind in all_binds:
+        label = f"{bind.address or '*'}:{bind.port or '?'} (line {bind.line_number})"
+        if bind.address.strip() in _WILDCARD_ADDRESSES:
+            wildcard_binds.append(label)
+        else:
+            specific_binds.append(label)
+
+    if not wildcard_binds:
+        return Finding(
+            check_id="HAPR-FRT-008",
+            status=Status.PASS,
+            message="All bind addresses use specific addresses (no wildcards).",
+            evidence=f"Specific binds: {', '.join(specific_binds)}",
+        )
+
+    if specific_binds:
+        return Finding(
+            check_id="HAPR-FRT-008",
+            status=Status.PARTIAL,
+            message=(
+                "Some bind addresses use specific addresses but others use "
+                "wildcards. Consider restricting all binds to specific addresses."
+            ),
+            evidence=(
+                f"Specific binds: {', '.join(specific_binds)}; "
+                f"Wildcard binds: {', '.join(wildcard_binds)}"
+            ),
+        )
+
+    return Finding(
+        check_id="HAPR-FRT-008",
+        status=Status.FAIL,
+        message=(
+            "All bind addresses use wildcards (0.0.0.0, *, or ::), exposing "
+            "the service on all network interfaces. Bind to specific addresses "
+            "to limit the attack surface."
+        ),
+        evidence=f"Wildcard binds: {', '.join(wildcard_binds)}",
+    )

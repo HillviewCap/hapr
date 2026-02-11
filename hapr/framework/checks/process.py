@@ -140,3 +140,35 @@ def check_ulimits(config: HAProxyConfig) -> Finding:
         message="ulimit-n is not set in the global section.",
         evidence="not found",
     )
+
+
+# ---------------------------------------------------------------------------
+# HAPR-PROC-005  Daemon mode
+# ---------------------------------------------------------------------------
+
+def check_daemon_mode(config: HAProxyConfig) -> Finding:
+    """Check that the ``daemon`` directive exists in the global section.
+
+    Running HAProxy in the foreground is useful for debugging but not
+    recommended for production deployments.  The ``daemon`` directive
+    ensures the process forks into the background.
+
+    Returns PASS if present, FAIL if missing.
+    """
+    if config.global_section.has("daemon"):
+        return Finding(
+            check_id="HAPR-PROC-005",
+            status=Status.PASS,
+            message="HAProxy is configured to run as a daemon.",
+            evidence="daemon",
+        )
+
+    return Finding(
+        check_id="HAPR-PROC-005",
+        status=Status.FAIL,
+        message=(
+            "No 'daemon' directive found in global section. Running in "
+            "foreground mode is not recommended for production."
+        ),
+        evidence="not found",
+    )

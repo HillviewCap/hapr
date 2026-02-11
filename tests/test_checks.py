@@ -824,3 +824,533 @@ global
 """)
         finding = logging_checks.check_log_level(config)
         assert finding.status == Status.PARTIAL
+
+
+# ---------------------------------------------------------------------------
+# New check tests: 16 checks
+# ---------------------------------------------------------------------------
+
+from hapr.framework.checks import (
+    process,
+    tls,
+    global_defaults,
+    headers,
+    request,
+    disclosure,
+    frontend,
+    backend,
+    logging_checks as logging_checks_mod,
+    timeouts,
+    access,
+)
+
+
+# ---------------------------------------------------------------------------
+# HAPR-PROC-005: Daemon mode
+# ---------------------------------------------------------------------------
+
+class TestDaemonMode:
+    """Test check_daemon_mode for HAPR-PROC-005."""
+
+    def test_daemon_present_passes(self):
+        config = parse_string("""
+global
+    daemon
+    log /dev/log local0
+""")
+        finding = process.check_daemon_mode(config)
+        assert finding.check_id == "HAPR-PROC-005"
+        assert finding.status == Status.PASS
+
+    def test_daemon_missing_fails(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = process.check_daemon_mode(config)
+        assert finding.check_id == "HAPR-PROC-005"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-008: TLS session tickets disabled
+# ---------------------------------------------------------------------------
+
+class TestTLSSessionTickets:
+    """Test check_tls_session_tickets_disabled for HAPR-TLS-008."""
+
+    def test_no_tls_tickets_in_global_passes(self):
+        config = parse_string("""
+global
+    ssl-default-bind-options no-sslv3 no-tls-tickets
+""")
+        finding = tls.check_tls_session_tickets_disabled(config)
+        assert finding.check_id == "HAPR-TLS-008"
+        assert finding.status == Status.PASS
+
+    def test_no_tls_tickets_missing_fails(self):
+        config = parse_string("""
+global
+    ssl-default-bind-options no-sslv3
+""")
+        finding = tls.check_tls_session_tickets_disabled(config)
+        assert finding.check_id == "HAPR-TLS-008"
+        assert finding.status == Status.FAIL
+
+    def test_no_bind_options_at_all_fails(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = tls.check_tls_session_tickets_disabled(config)
+        assert finding.check_id == "HAPR-TLS-008"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-009: SSL default server options
+# ---------------------------------------------------------------------------
+
+class TestSSLDefaultServerOptions:
+    """Test check_ssl_default_server_options for HAPR-TLS-009."""
+
+    def test_ssl_default_server_options_present_passes(self):
+        config = parse_string("""
+global
+    ssl-default-server-options ssl-min-ver TLSv1.2
+""")
+        finding = tls.check_ssl_default_server_options(config)
+        assert finding.check_id == "HAPR-TLS-009"
+        assert finding.status == Status.PASS
+
+    def test_ssl_default_server_options_missing_fails(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = tls.check_ssl_default_server_options(config)
+        assert finding.check_id == "HAPR-TLS-009"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-GBL-006: hard-stop-after
+# ---------------------------------------------------------------------------
+
+class TestHardStopAfter:
+    """Test check_hard_stop_after for HAPR-GBL-006."""
+
+    def test_hard_stop_after_present_passes(self):
+        config = parse_string("""
+global
+    hard-stop-after 30s
+""")
+        finding = global_defaults.check_hard_stop_after(config)
+        assert finding.check_id == "HAPR-GBL-006"
+        assert finding.status == Status.PASS
+
+    def test_hard_stop_after_missing_fails(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = global_defaults.check_hard_stop_after(config)
+        assert finding.check_id == "HAPR-GBL-006"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-GBL-007: nbproc not used
+# ---------------------------------------------------------------------------
+
+class TestNbprocNotUsed:
+    """Test check_nbproc_not_used for HAPR-GBL-007."""
+
+    def test_no_nbproc_with_nbthread_passes(self):
+        config = parse_string("""
+global
+    nbthread 4
+""")
+        finding = global_defaults.check_nbproc_not_used(config)
+        assert finding.check_id == "HAPR-GBL-007"
+        assert finding.status == Status.PASS
+
+    def test_no_nbproc_at_all_passes(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = global_defaults.check_nbproc_not_used(config)
+        assert finding.check_id == "HAPR-GBL-007"
+        assert finding.status == Status.PASS
+
+    def test_nbproc_present_fails(self):
+        config = parse_string("""
+global
+    nbproc 4
+""")
+        finding = global_defaults.check_nbproc_not_used(config)
+        assert finding.check_id == "HAPR-GBL-007"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-HDR-007: Cross-Origin-Opener-Policy
+# ---------------------------------------------------------------------------
+
+class TestCOOPHeader:
+    """Test check_cross_origin_opener_policy for HAPR-HDR-007."""
+
+    def test_coop_header_set_passes(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header Cross-Origin-Opener-Policy same-origin
+""")
+        finding = headers.check_cross_origin_opener_policy(config)
+        assert finding.check_id == "HAPR-HDR-007"
+        assert finding.status == Status.PASS
+
+    def test_coop_header_missing_fails(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = headers.check_cross_origin_opener_policy(config)
+        assert finding.check_id == "HAPR-HDR-007"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-HDR-008: Cross-Origin-Embedder-Policy
+# ---------------------------------------------------------------------------
+
+class TestCOEPHeader:
+    """Test check_cross_origin_embedder_policy for HAPR-HDR-008."""
+
+    def test_coep_header_set_passes(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header Cross-Origin-Embedder-Policy require-corp
+""")
+        finding = headers.check_cross_origin_embedder_policy(config)
+        assert finding.check_id == "HAPR-HDR-008"
+        assert finding.status == Status.PASS
+
+    def test_coep_header_missing_fails(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = headers.check_cross_origin_embedder_policy(config)
+        assert finding.check_id == "HAPR-HDR-008"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-REQ-005: HTTP smuggling prevention
+# ---------------------------------------------------------------------------
+
+class TestHTTPSmugglingPrevention:
+    """Test check_http_smuggling_prevention for HAPR-REQ-005."""
+
+    def test_content_length_deny_rule_passes(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    http-request deny deny_status 400 if { req.hdr_cnt(content-length) gt 1 }
+    default_backend bk_web
+""")
+        finding = request.check_http_smuggling_prevention(config)
+        assert finding.check_id == "HAPR-REQ-005"
+        assert finding.status == Status.PASS
+
+    def test_option_httpclose_passes(self):
+        config = parse_string("""
+defaults
+    mode http
+    option httpclose
+""")
+        finding = request.check_http_smuggling_prevention(config)
+        assert finding.check_id == "HAPR-REQ-005"
+        assert finding.status == Status.PASS
+
+    def test_no_smuggling_prevention_fails(self):
+        config = parse_string("""
+defaults
+    mode http
+
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = request.check_http_smuggling_prevention(config)
+        assert finding.check_id == "HAPR-REQ-005"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-INF-005: XFF spoofing prevention
+# ---------------------------------------------------------------------------
+
+class TestXFFSpoofingPrevention:
+    """Test check_xff_spoofing_prevention for HAPR-INF-005."""
+
+    def test_del_header_with_forwardfor_passes(self):
+        config = parse_string("""
+defaults
+    mode http
+    option forwardfor
+    http-request del-header X-Forwarded-For
+""")
+        finding = disclosure.check_xff_spoofing_prevention(config)
+        assert finding.check_id == "HAPR-INF-005"
+        assert finding.status == Status.PASS
+
+    def test_forwardfor_without_del_header_fails(self):
+        config = parse_string("""
+defaults
+    mode http
+    option forwardfor
+""")
+        finding = disclosure.check_xff_spoofing_prevention(config)
+        assert finding.check_id == "HAPR-INF-005"
+        assert finding.status == Status.FAIL
+
+    def test_no_forwardfor_returns_na(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = disclosure.check_xff_spoofing_prevention(config)
+        assert finding.check_id == "HAPR-INF-005"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# HAPR-FRT-007: XFF configured
+# ---------------------------------------------------------------------------
+
+class TestXFFConfigured:
+    """Test check_xff_configured for HAPR-FRT-007."""
+
+    def test_forwardfor_in_defaults_passes(self):
+        config = parse_string("""
+defaults
+    mode http
+    option forwardfor
+""")
+        finding = frontend.check_xff_configured(config)
+        assert finding.check_id == "HAPR-FRT-007"
+        assert finding.status == Status.PASS
+
+    def test_no_forwardfor_fails(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = frontend.check_xff_configured(config)
+        assert finding.check_id == "HAPR-FRT-007"
+        assert finding.status == Status.FAIL
+
+    def test_forwardfor_in_frontend_passes(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    option forwardfor
+    default_backend bk_web
+""")
+        finding = frontend.check_xff_configured(config)
+        assert finding.check_id == "HAPR-FRT-007"
+        assert finding.status == Status.PASS
+
+
+# ---------------------------------------------------------------------------
+# HAPR-FRT-008: Bind address restrictions
+# ---------------------------------------------------------------------------
+
+class TestBindAddressRestrictions:
+    """Test check_bind_address_restrictions for HAPR-FRT-008."""
+
+    def test_specific_bind_address_passes(self):
+        config = parse_string("""
+frontend ft_web
+    bind 10.0.0.1:443
+    default_backend bk_web
+""")
+        finding = frontend.check_bind_address_restrictions(config)
+        assert finding.check_id == "HAPR-FRT-008"
+        assert finding.status == Status.PASS
+
+    def test_wildcard_bind_address_fails(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:443
+    default_backend bk_web
+""")
+        finding = frontend.check_bind_address_restrictions(config)
+        assert finding.check_id == "HAPR-FRT-008"
+        assert finding.status == Status.FAIL
+
+    def test_no_bind_lines_returns_na(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = frontend.check_bind_address_restrictions(config)
+        assert finding.check_id == "HAPR-FRT-008"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# HAPR-BKD-006: Backend SSL verification
+# ---------------------------------------------------------------------------
+
+class TestBackendSSLVerification:
+    """Test check_backend_ssl_verification for HAPR-BKD-006."""
+
+    def test_ssl_verify_required_with_ca_file_passes(self):
+        config = parse_string("""
+backend bk_api
+    server web1 10.0.0.1:443 ssl verify required ca-file /etc/ssl/ca.crt
+""")
+        finding = backend.check_backend_ssl_verification(config)
+        assert finding.check_id == "HAPR-BKD-006"
+        assert finding.status == Status.PASS
+
+    def test_ssl_verify_none_fails(self):
+        config = parse_string("""
+backend bk_api
+    server web1 10.0.0.1:443 ssl verify none
+""")
+        finding = backend.check_backend_ssl_verification(config)
+        assert finding.check_id == "HAPR-BKD-006"
+        assert finding.status == Status.FAIL
+
+    def test_no_ssl_returns_na(self):
+        config = parse_string("""
+backend bk_api
+    server web1 10.0.0.1:80
+""")
+        finding = backend.check_backend_ssl_verification(config)
+        assert finding.check_id == "HAPR-BKD-006"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# HAPR-LOG-006: dontlognull
+# ---------------------------------------------------------------------------
+
+class TestDontlognull:
+    """Test check_dontlognull for HAPR-LOG-006."""
+
+    def test_dontlognull_in_defaults_passes(self):
+        config = parse_string("""
+defaults
+    mode http
+    option dontlognull
+""")
+        finding = logging_checks_mod.check_dontlognull(config)
+        assert finding.check_id == "HAPR-LOG-006"
+        assert finding.status == Status.PASS
+
+    def test_no_dontlognull_fails(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = logging_checks_mod.check_dontlognull(config)
+        assert finding.check_id == "HAPR-LOG-006"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-LOG-007: Remote syslog
+# ---------------------------------------------------------------------------
+
+class TestRemoteSyslog:
+    """Test check_remote_syslog for HAPR-LOG-007."""
+
+    def test_remote_syslog_passes(self):
+        config = parse_string("""
+global
+    log 10.0.0.5:514 local0
+""")
+        finding = logging_checks_mod.check_remote_syslog(config)
+        assert finding.check_id == "HAPR-LOG-007"
+        assert finding.status == Status.PASS
+
+    def test_local_syslog_only_partial(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = logging_checks_mod.check_remote_syslog(config)
+        assert finding.check_id == "HAPR-LOG-007"
+        assert finding.status == Status.PARTIAL
+
+    def test_no_log_directives_fails(self):
+        config = parse_string("""
+global
+    daemon
+""")
+        finding = logging_checks_mod.check_remote_syslog(config)
+        assert finding.check_id == "HAPR-LOG-007"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TMO-006: HTTP keep-alive timeout
+# ---------------------------------------------------------------------------
+
+class TestHTTPKeepaliveTimeout:
+    """Test check_http_keepalive_timeout for HAPR-TMO-006."""
+
+    def test_http_keep_alive_timeout_present_passes(self):
+        config = parse_string("""
+defaults
+    timeout http-keep-alive 5s
+""")
+        finding = timeouts.check_http_keepalive_timeout(config)
+        assert finding.check_id == "HAPR-TMO-006"
+        assert finding.status == Status.PASS
+
+    def test_http_keep_alive_timeout_missing_fails(self):
+        config = parse_string("""
+defaults
+    timeout client 30s
+""")
+        finding = timeouts.check_http_keepalive_timeout(config)
+        assert finding.check_id == "HAPR-TMO-006"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-ACL-007: Source IP restrictions
+# ---------------------------------------------------------------------------
+
+class TestSourceIPRestrictions:
+    """Test check_source_ip_restrictions for HAPR-ACL-007."""
+
+    def test_src_acl_with_deny_passes(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    acl trusted_src src 10.0.0.0/8
+    http-request deny if !trusted_src
+    default_backend bk_web
+""")
+        finding = access.check_source_ip_restrictions(config)
+        assert finding.check_id == "HAPR-ACL-007"
+        assert finding.status == Status.PASS
+
+    def test_no_src_acls_fails(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = access.check_source_ip_restrictions(config)
+        assert finding.check_id == "HAPR-ACL-007"
+        assert finding.status == Status.FAIL

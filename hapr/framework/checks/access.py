@@ -456,3 +456,86 @@ def check_userlist_passwords(config: HAProxyConfig) -> Finding:
         message="All userlist passwords use hashed storage.",
         evidence=f"Checked {sum(len(ul.users) for ul in config.userlists)} user(s) across {len(config.userlists)} userlist(s).",
     )
+
+
+def check_source_ip_restrictions(config: HAProxyConfig) -> Finding:
+    """HAPR-ACL-007: Check for source IP restrictions on admin interfaces.
+
+    Admin interfaces (stats pages, management endpoints) should be restricted
+    to trusted source IP ranges using ``src``-based ACLs combined with
+    ``http-request deny`` or ``http-request allow`` rules.
+
+    Searches all frontends and listen sections for:
+
+    1. ACLs that use ``src`` in their arguments (e.g. ``acl trusted_src src 10.0.0.0/8``).
+    2. ``http-request deny`` or ``http-request allow`` rules that reference
+       ``src``-based ACLs or use inline ``src`` conditions.
+
+    Returns
+    -------
+    Finding
+        PASS -- Source IP restrictions are found in at least one section.
+        FAIL -- No source IP restrictions found.
+    """
+    evidence_lines: list[str] = []
+
+    for section in config.all_frontends_and_listens:
+        section_label = section.name or "(unnamed)"
+
+        # Collect names of src-based ACLs for cross-referencing
+        src_acl_names: list[str] = []
+
+        # 1. Check ACLs for 'src' usage
+        for acl in section.acls:
+            # ACL args format: "<name> <criterion> <values>"
+            # e.g. "trusted_src src 10.0.0.0/8"
+            acl_tokens = acl.args.split()
+            if len(acl_tokens) >= 2 and acl_tokens[1].lower() == "src":
+                src_acl_names.append(acl_tokens[0])
+                evidence_lines.append(
+                    f"[{section_label}] acl {acl.args} (line {acl.line_number})"
+                )
+
+        # 2. Check http-request deny/allow rules referencing src-based ACLs
+        #    or using inline src conditions
+        for directive in section.get("http-request"):
+            args_lower = directive.args.lower()
+            if "deny" not in args_lower and "allow" not in args_lower:
+                continue
+
+            # Check for inline src reference in the rule
+            has_src_ref = False
+            if re.search(r"\bsrc\b", args_lower):
+                has_src_ref = True
+
+            # Check if the rule references any src-based ACL by name
+            if not has_src_ref:
+                for acl_name in src_acl_names:
+                    if acl_name.lower() in args_lower:
+                        has_src_ref = True
+                        break
+
+            if has_src_ref:
+                evidence_lines.append(
+                    f"[{section_label}] http-request {directive.args} (line {directive.line_number})"
+                )
+
+    if evidence_lines:
+        return Finding(
+            check_id="HAPR-ACL-007",
+            status=Status.PASS,
+            message="Source IP restrictions are configured for access control.",
+            evidence="\n".join(evidence_lines),
+        )
+
+    return Finding(
+        check_id="HAPR-ACL-007",
+        status=Status.FAIL,
+        message=(
+            "No source IP restrictions found on admin interfaces. "
+            "Add 'src'-based ACLs and corresponding 'http-request deny' rules "
+            "to restrict access to stats pages and management endpoints to "
+            "trusted IP ranges."
+        ),
+        evidence="Searched all frontend and listen sections for src-based ACLs and deny/allow rules; none found.",
+    )

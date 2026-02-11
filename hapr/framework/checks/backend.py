@@ -424,3 +424,93 @@ def check_retry_redispatch(config: HAProxyConfig) -> Finding:
         ),
         evidence="Searched defaults and all backend/listen sections; neither directive found.",
     )
+
+
+def check_backend_ssl_verification(config: HAProxyConfig) -> Finding:
+    """HAPR-BKD-006: Check that backend servers with SSL have certificate verification enabled.
+
+    When backend servers use SSL/TLS (``ssl`` option on server lines), they
+    should also have ``verify required`` and a ``ca-file`` configured to
+    ensure that HAProxy validates the backend server's certificate.  Without
+    verification, SSL connections are vulnerable to man-in-the-middle attacks.
+
+    Returns
+    -------
+    Finding
+        PASS           -- All SSL servers have ``verify required`` AND ``ca-file``.
+        PARTIAL        -- Some SSL servers are verified but not all, or
+                          ``verify required`` is present but ``ca-file`` is missing.
+        FAIL           -- SSL servers have ``verify none`` or no verify option.
+        NOT_APPLICABLE -- No servers use SSL.
+    """
+    all_servers = config.all_servers
+    ssl_servers = [s for s in all_servers if s.ssl]
+
+    if not ssl_servers:
+        return Finding(
+            check_id="HAPR-BKD-006",
+            status=Status.NOT_APPLICABLE,
+            message="No backend servers use SSL; certificate verification check is not applicable.",
+            evidence="No server lines with the 'ssl' option found.",
+        )
+
+    fully_verified: list[str] = []
+    partial_verified: list[str] = []
+    unverified: list[str] = []
+    evidence_lines: list[str] = []
+
+    for server in ssl_servers:
+        label = f"{server.name} ({server.address}:{server.port})"
+        verify_val = server.options.get("verify", "").lower()
+        has_ca_file = "ca-file" in server.options
+
+        if verify_val == "required" and has_ca_file:
+            fully_verified.append(label)
+            evidence_lines.append(
+                f"{label}: verify required, ca-file={server.options['ca-file']}"
+            )
+        elif verify_val == "required" and not has_ca_file:
+            partial_verified.append(label)
+            evidence_lines.append(
+                f"{label}: verify required but missing ca-file"
+            )
+        else:
+            # verify none, or no verify option (defaults to none in many configs)
+            unverified.append(label)
+            if verify_val:
+                evidence_lines.append(f"{label}: verify {verify_val} (not required)")
+            else:
+                evidence_lines.append(f"{label}: no verify option set (defaults to none)")
+
+    # All SSL servers are fully verified
+    if not unverified and not partial_verified:
+        return Finding(
+            check_id="HAPR-BKD-006",
+            status=Status.PASS,
+            message="All SSL-enabled backend servers have certificate verification with ca-file configured.",
+            evidence="\n".join(evidence_lines),
+        )
+
+    # Some are fully verified or have partial verification, but not all are unverified
+    if fully_verified or partial_verified:
+        return Finding(
+            check_id="HAPR-BKD-006",
+            status=Status.PARTIAL,
+            message=(
+                "Some SSL-enabled backend servers are missing full certificate verification. "
+                "Ensure all SSL servers have 'verify required' and a 'ca-file' configured."
+            ),
+            evidence="\n".join(evidence_lines),
+        )
+
+    # All SSL servers are unverified
+    return Finding(
+        check_id="HAPR-BKD-006",
+        status=Status.FAIL,
+        message=(
+            "SSL-enabled backend servers do not have certificate verification configured. "
+            "Add 'verify required' and 'ca-file /path/to/ca.pem' to server lines to "
+            "prevent man-in-the-middle attacks on backend connections."
+        ),
+        evidence="\n".join(evidence_lines),
+    )

@@ -451,3 +451,116 @@ def check_dh_param_size(config: HAProxyConfig) -> Finding:
         message=f"DH parameter size is {size} bits, which is below the recommended 2048.",
         evidence=f"tune.ssl.default-dh-param {size}",
     )
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-008  TLS session tickets disabled
+# ---------------------------------------------------------------------------
+
+def check_tls_session_tickets_disabled(config: HAProxyConfig) -> Finding:
+    """Check that TLS session tickets are disabled via ``no-tls-tickets``.
+
+    TLS session tickets can leak session keys if the server is compromised,
+    weakening forward secrecy.  Disabling them via ``no-tls-tickets`` in
+    ``ssl-default-bind-options`` (global) or on individual bind lines is
+    recommended.
+
+    Returns PASS if ``no-tls-tickets`` is set globally, PARTIAL if only on
+    some bind lines, FAIL if not found anywhere.
+    """
+    g = config.global_section
+
+    # --- Check global ssl-default-bind-options for no-tls-tickets ---
+    global_found = False
+    bind_opts_directives = g.get("ssl-default-bind-options")
+    for d in bind_opts_directives:
+        tokens = d.args.lower().split()
+        if "no-tls-tickets" in tokens:
+            global_found = True
+            break
+
+    if global_found:
+        return Finding(
+            check_id="HAPR-TLS-008",
+            status=Status.PASS,
+            message="TLS session tickets are disabled globally via ssl-default-bind-options.",
+            evidence="ssl-default-bind-options contains no-tls-tickets",
+        )
+
+    # --- Check individual bind lines ---
+    binds_with: list[str] = []
+    ssl_binds: list[str] = []
+    for bind in config.all_binds:
+        if not bind.ssl:
+            continue
+        ssl_binds.append(bind.raw)
+        opts_lower = {k.lower() for k in bind.options}
+        if "no-tls-tickets" in opts_lower:
+            binds_with.append(bind.raw)
+
+    if binds_with:
+        if len(binds_with) == len(ssl_binds):
+            return Finding(
+                check_id="HAPR-TLS-008",
+                status=Status.PARTIAL,
+                message=(
+                    "TLS session tickets are disabled on all SSL bind lines, but "
+                    "not in the global ssl-default-bind-options. Consider setting "
+                    "it globally for consistency."
+                ),
+                evidence=f"no-tls-tickets on {len(binds_with)}/{len(ssl_binds)} SSL bind lines",
+            )
+        return Finding(
+            check_id="HAPR-TLS-008",
+            status=Status.PARTIAL,
+            message=(
+                f"TLS session tickets are disabled on only "
+                f"{len(binds_with)}/{len(ssl_binds)} SSL bind lines."
+            ),
+            evidence=f"no-tls-tickets found on: {'; '.join(binds_with)}",
+        )
+
+    return Finding(
+        check_id="HAPR-TLS-008",
+        status=Status.FAIL,
+        message=(
+            "TLS session tickets are not disabled anywhere. Add 'no-tls-tickets' "
+            "to ssl-default-bind-options in the global section."
+        ),
+        evidence="no-tls-tickets not found in global or any bind line",
+    )
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-009  ssl-default-server-options present
+# ---------------------------------------------------------------------------
+
+def check_ssl_default_server_options(config: HAProxyConfig) -> Finding:
+    """Check that ``ssl-default-server-options`` is set in the global section.
+
+    This directive centralises TLS settings for backend (server-side)
+    connections, similar to ``ssl-default-bind-options`` for frontend
+    connections.  Without it, each server line must specify TLS options
+    individually.
+
+    Returns PASS if present, FAIL if missing.
+    """
+    if config.global_section.has("ssl-default-server-options"):
+        value = config.global_section.get_value("ssl-default-server-options") or ""
+        return Finding(
+            check_id="HAPR-TLS-009",
+            status=Status.PASS,
+            message="Global ssl-default-server-options directive is present.",
+            evidence=f"ssl-default-server-options {value}",
+        )
+
+    return Finding(
+        check_id="HAPR-TLS-009",
+        status=Status.FAIL,
+        message=(
+            "Global ssl-default-server-options directive is missing. "
+            "Consider adding 'ssl-default-server-options ssl-min-ver TLSv1.2' "
+            "to enforce TLS settings for backend connections."
+        ),
+        evidence="not found",
+    )

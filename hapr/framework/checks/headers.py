@@ -358,3 +358,66 @@ def check_x_xss_protection(config: HAProxyConfig) -> Finding:
         ),
         evidence=f"http-response {directive.args} (line {directive.line_number})",
     )
+
+
+def check_cross_origin_opener_policy(config: HAProxyConfig) -> Finding:
+    """HAPR-HDR-007: Check for Cross-Origin-Opener-Policy (COOP) header.
+
+    The Cross-Origin-Opener-Policy header prevents other domains from
+    opening or controlling a window.  This isolates the browsing context
+    and mitigates cross-origin attacks such as Spectre.
+
+    Returns PASS if the header is set, FAIL otherwise.
+    """
+    directive = _find_response_header(config, "Cross-Origin-Opener-Policy")
+
+    if directive:
+        return Finding(
+            check_id="HAPR-HDR-007",
+            status=Status.PASS,
+            message="Cross-Origin-Opener-Policy header is configured.",
+            evidence=f"http-response {directive.args} (line {directive.line_number})",
+        )
+
+    return Finding(
+        check_id="HAPR-HDR-007",
+        status=Status.FAIL,
+        message=(
+            "Cross-Origin-Opener-Policy header is not set. Add "
+            "'http-response set-header Cross-Origin-Opener-Policy same-origin' "
+            "to isolate the browsing context from cross-origin documents."
+        ),
+        evidence="No http-response set-header/add-header for Cross-Origin-Opener-Policy found.",
+    )
+
+
+def check_cross_origin_embedder_policy(config: HAProxyConfig) -> Finding:
+    """HAPR-HDR-008: Check for Cross-Origin-Embedder-Policy (COEP) header.
+
+    The Cross-Origin-Embedder-Policy header prevents a document from
+    loading cross-origin resources that do not explicitly grant permission.
+    Combined with COOP, it enables cross-origin isolation and access to
+    powerful APIs such as ``SharedArrayBuffer``.
+
+    Returns PASS if the header is set, FAIL otherwise.
+    """
+    directive = _find_response_header(config, "Cross-Origin-Embedder-Policy")
+
+    if directive:
+        return Finding(
+            check_id="HAPR-HDR-008",
+            status=Status.PASS,
+            message="Cross-Origin-Embedder-Policy header is configured.",
+            evidence=f"http-response {directive.args} (line {directive.line_number})",
+        )
+
+    return Finding(
+        check_id="HAPR-HDR-008",
+        status=Status.FAIL,
+        message=(
+            "Cross-Origin-Embedder-Policy header is not set. Add "
+            "'http-response set-header Cross-Origin-Embedder-Policy require-corp' "
+            "to prevent loading of cross-origin resources without explicit permission."
+        ),
+        evidence="No http-response set-header/add-header for Cross-Origin-Embedder-Policy found.",
+    )

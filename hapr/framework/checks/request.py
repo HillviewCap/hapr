@@ -283,3 +283,90 @@ def check_request_header_limits(config: HAProxyConfig) -> Finding:
         ),
         evidence="No tune.http.maxhdr or tune.bufsize directives found in global.",
     )
+
+
+def check_http_smuggling_prevention(config: HAProxyConfig) -> Finding:
+    """HAPR-REQ-005: Check for HTTP request smuggling prevention measures.
+
+    HTTP request smuggling exploits discrepancies in how front-end and
+    back-end servers parse HTTP requests.  This check looks for several
+    mitigation measures:
+
+    * ``option httpclose`` -- forces connection close after each request.
+    * ``option http-use-htx`` -- enables the HTX internal representation
+      which has stronger parsing and smuggling resistance.
+    * ``http-request deny`` rules that reject duplicate ``Content-Length``
+      or ``Transfer-Encoding`` headers.
+    * ``option http-restrict-req-hdr-names reject`` -- rejects requests
+      with malformed header names.
+
+    Returns PASS if any smuggling prevention measure is found, FAIL
+    otherwise.
+    """
+    evidence_parts: list[str] = []
+
+    all_sections = (
+        list(config.all_frontends_and_listens)
+        + list(config.defaults)
+    )
+
+    # Check proxy sections for option httpclose and http-restrict-req-hdr-names
+    for section in all_sections:
+        section_name = getattr(section, "name", "unnamed") or "unnamed"
+        for directive in section.get("option"):
+            args_lower = directive.args.lower()
+            if "httpclose" in args_lower:
+                evidence_parts.append(
+                    f"option httpclose in '{section_name}' "
+                    f"(line {directive.line_number})"
+                )
+            if "http-restrict-req-hdr-names" in args_lower and "reject" in args_lower:
+                evidence_parts.append(
+                    f"option http-restrict-req-hdr-names reject in '{section_name}' "
+                    f"(line {directive.line_number})"
+                )
+
+        # Check for http-request deny rules targeting duplicate headers
+        for directive in section.get("http-request"):
+            args_lower = directive.args.lower()
+            if "deny" in args_lower:
+                if "req.hdr_cnt(content-length)" in args_lower:
+                    evidence_parts.append(
+                        f"Duplicate Content-Length deny rule in '{section_name}': "
+                        f"http-request {directive.args} (line {directive.line_number})"
+                    )
+                if "req.hdr_cnt(transfer-encoding)" in args_lower:
+                    evidence_parts.append(
+                        f"Duplicate Transfer-Encoding deny rule in '{section_name}': "
+                        f"http-request {directive.args} (line {directive.line_number})"
+                    )
+
+    # Check global section for option http-use-htx
+    for directive in config.global_section.get("option"):
+        if "http-use-htx" in directive.args.lower():
+            evidence_parts.append(
+                f"option http-use-htx in global (line {directive.line_number})"
+            )
+
+    if evidence_parts:
+        return Finding(
+            check_id="HAPR-REQ-005",
+            status=Status.PASS,
+            message="HTTP request smuggling prevention measures are configured.",
+            evidence="; ".join(evidence_parts),
+        )
+
+    return Finding(
+        check_id="HAPR-REQ-005",
+        status=Status.FAIL,
+        message=(
+            "No HTTP request smuggling prevention measures found. Consider "
+            "adding 'option httpclose', 'option http-use-htx', or deny rules "
+            "for duplicate Content-Length/Transfer-Encoding headers to mitigate "
+            "HTTP request smuggling attacks."
+        ),
+        evidence=(
+            "No option httpclose, option http-use-htx, duplicate header deny rules, "
+            "or option http-restrict-req-hdr-names reject directives detected."
+        ),
+    )

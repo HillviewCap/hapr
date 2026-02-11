@@ -215,6 +215,98 @@ def check_global_maxconn(config: HAProxyConfig) -> Finding:
         )
 
 
+# ---------------------------------------------------------------------------
+# HAPR-GBL-006  hard-stop-after
+# ---------------------------------------------------------------------------
+
+def check_hard_stop_after(config: HAProxyConfig) -> Finding:
+    """HAPR-GBL-006: Check that ``hard-stop-after`` is set in the global section.
+
+    The ``hard-stop-after`` directive sets a maximum time for graceful
+    shutdown before HAProxy force-kills remaining connections.  Without it,
+    HAProxy may hang indefinitely during reloads if long-lived connections
+    do not close gracefully.
+
+    Returns PASS if present, FAIL if missing.
+    """
+    if config.global_section.has("hard-stop-after"):
+        value = config.global_section.get_value("hard-stop-after")
+        return Finding(
+            check_id="HAPR-GBL-006",
+            status=Status.PASS,
+            message=f"hard-stop-after is configured: {value}",
+            evidence=f"hard-stop-after {value}",
+        )
+
+    return Finding(
+        check_id="HAPR-GBL-006",
+        status=Status.FAIL,
+        message=(
+            "No 'hard-stop-after' directive found in global section. "
+            "Without it, HAProxy may hang during reloads if connections "
+            "don't close gracefully."
+        ),
+        evidence="not found",
+    )
+
+
+# ---------------------------------------------------------------------------
+# HAPR-GBL-007  nbproc not used (deprecated)
+# ---------------------------------------------------------------------------
+
+def check_nbproc_not_used(config: HAProxyConfig) -> Finding:
+    """HAPR-GBL-007: Check that ``nbproc`` is NOT used in the global section.
+
+    The ``nbproc`` directive is deprecated since HAProxy 2.5 and has been
+    replaced by ``nbthread``.  Multi-process mode causes issues with
+    shared state (stick-tables, peers, etc.) and should be migrated to
+    multi-threading.
+
+    Returns PASS if ``nbproc`` is absent, FAIL if present.
+    """
+    if config.global_section.has("nbproc"):
+        value = config.global_section.get_value("nbproc")
+        has_nbthread = config.global_section.has("nbthread")
+        if has_nbthread:
+            nbthread_value = config.global_section.get_value("nbthread")
+            return Finding(
+                check_id="HAPR-GBL-007",
+                status=Status.FAIL,
+                message=(
+                    f"Deprecated 'nbproc {value}' is set alongside 'nbthread {nbthread_value}'. "
+                    "Remove nbproc and rely solely on nbthread."
+                ),
+                evidence=f"nbproc {value}; nbthread {nbthread_value}",
+            )
+        return Finding(
+            check_id="HAPR-GBL-007",
+            status=Status.FAIL,
+            message=(
+                f"Deprecated 'nbproc {value}' is set in global section. "
+                "Migrate to 'nbthread' for multi-threading support (HAProxy 2.5+)."
+            ),
+            evidence=f"nbproc {value}",
+        )
+
+    # nbproc not found — good
+    has_nbthread = config.global_section.has("nbthread")
+    if has_nbthread:
+        nbthread_value = config.global_section.get_value("nbthread")
+        return Finding(
+            check_id="HAPR-GBL-007",
+            status=Status.PASS,
+            message=f"nbproc is not used; nbthread is configured ({nbthread_value}).",
+            evidence=f"nbthread {nbthread_value}",
+        )
+
+    return Finding(
+        check_id="HAPR-GBL-007",
+        status=Status.PASS,
+        message="nbproc is not used (deprecated directive absent).",
+        evidence="nbproc not found",
+    )
+
+
 # NOTE: This function is no longer referenced in the baseline YAML (duplicate of tls.check_dh_param_size)
 def check_ssl_dh_param(config: HAProxyConfig) -> Finding:
     """HAPR-GBL-005: Check tune.ssl.default-dh-param is set to >= 2048."""

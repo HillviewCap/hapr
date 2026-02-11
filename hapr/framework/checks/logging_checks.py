@@ -423,3 +423,141 @@ def check_httplog_or_tcplog(config: HAProxyConfig) -> Finding:
         ),
         evidence="No option httplog or option tcplog directives found in defaults, frontends, or listen sections.",
     )
+
+
+def check_dontlognull(config: HAProxyConfig) -> Finding:
+    """HAPR-LOG-006: Check for ``option dontlognull`` directive.
+
+    ``option dontlognull`` prevents HAProxy from logging connections that
+    close without sending any data.  This filters out health-check probes,
+    port scans, and other noise that would otherwise clutter the logs.
+
+    Searches defaults, frontends, and listen sections for the directive.
+
+    Returns
+    -------
+    Finding
+        PASS -- ``option dontlognull`` is found in at least one section.
+        FAIL -- ``option dontlognull`` is not found in any section.
+    """
+    evidence_parts: list[str] = []
+
+    # Check defaults
+    for section in config.defaults:
+        section_label = f"defaults({section.name or 'unnamed'})"
+        for directive in section.get("option"):
+            if "dontlognull" in directive.args.lower():
+                evidence_parts.append(f"option dontlognull in {section_label}")
+
+    # Check frontends
+    for section in config.frontends:
+        for directive in section.get("option"):
+            if "dontlognull" in directive.args.lower():
+                evidence_parts.append(
+                    f"option dontlognull in frontend '{section.name}'"
+                )
+
+    # Check listen sections
+    for section in config.listens:
+        for directive in section.get("option"):
+            if "dontlognull" in directive.args.lower():
+                evidence_parts.append(
+                    f"option dontlognull in listen '{section.name}'"
+                )
+
+    if evidence_parts:
+        return Finding(
+            check_id="HAPR-LOG-006",
+            status=Status.PASS,
+            message="'option dontlognull' is configured to suppress empty connection logs.",
+            evidence="; ".join(evidence_parts),
+        )
+
+    return Finding(
+        check_id="HAPR-LOG-006",
+        status=Status.FAIL,
+        message=(
+            "No 'option dontlognull' directive found. Without it, HAProxy "
+            "logs connections that close without sending data (health checks, "
+            "port scans), adding noise to log files. Add 'option dontlognull' "
+            "to defaults or frontends."
+        ),
+        evidence="No option dontlognull directives found in defaults, frontends, or listen sections.",
+    )
+
+
+def check_remote_syslog(config: HAProxyConfig) -> Finding:
+    """HAPR-LOG-007: Check that at least one log directive sends to a remote syslog server.
+
+    Centralized remote logging ensures that log data survives host compromise
+    and enables aggregated monitoring.  This check examines global ``log``
+    directives to determine whether any target is a remote syslog endpoint
+    (IP or hostname with optional port) rather than a local Unix socket
+    (paths starting with ``/``).
+
+    Returns
+    -------
+    Finding
+        PASS    -- At least one remote syslog target is found.
+        PARTIAL -- Only local syslog targets exist (e.g. ``/dev/log``).
+        FAIL    -- No log directives at all.
+    """
+    log_directives = config.global_section.get("log")
+
+    if not log_directives:
+        return Finding(
+            check_id="HAPR-LOG-007",
+            status=Status.FAIL,
+            message=(
+                "No log directives found in the global section. "
+                "Add a remote syslog target (e.g. 'log 10.0.0.1:514 local0') "
+                "for centralized logging."
+            ),
+            evidence="No log directives in global section.",
+        )
+
+    remote_targets: list[str] = []
+    local_targets: list[str] = []
+
+    for directive in log_directives:
+        # The first token of the args is the log target
+        tokens = directive.args.split()
+        if not tokens:
+            continue
+        target = tokens[0]
+
+        if target.startswith("/"):
+            local_targets.append(f"log {directive.args} (local: {target})")
+        else:
+            remote_targets.append(f"log {directive.args} (remote: {target})")
+
+    if remote_targets:
+        return Finding(
+            check_id="HAPR-LOG-007",
+            status=Status.PASS,
+            message="Remote syslog target is configured for centralized logging.",
+            evidence="; ".join(remote_targets + local_targets),
+        )
+
+    if local_targets:
+        return Finding(
+            check_id="HAPR-LOG-007",
+            status=Status.PARTIAL,
+            message=(
+                "Only local syslog targets found. Logs sent to local sockets "
+                "may be lost if the host is compromised. Add a remote syslog "
+                "target (e.g. 'log 10.0.0.1:514 local0') for centralized logging."
+            ),
+            evidence="; ".join(local_targets),
+        )
+
+    return Finding(
+        check_id="HAPR-LOG-007",
+        status=Status.FAIL,
+        message=(
+            "No usable log targets found in the global section. "
+            "Add a remote syslog target (e.g. 'log 10.0.0.1:514 local0') "
+            "for centralized logging."
+        ),
+        evidence="Log directives found but no targets could be parsed.",
+    )
