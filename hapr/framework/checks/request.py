@@ -370,3 +370,177 @@ def check_http_smuggling_prevention(config: HAProxyConfig) -> Finding:
             "or option http-restrict-req-hdr-names reject directives detected."
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# HAPR-H2-001  HTTP/2 stream limits
+# ---------------------------------------------------------------------------
+
+def _h2_in_use(config: HAProxyConfig) -> tuple[bool, list[str]]:
+    """Return (True, evidence) if any bind line advertises HTTP/2."""
+    h2_binds: list[str] = []
+    for section in config.all_frontends_and_listens:
+        section_name = getattr(section, "name", "unnamed") or "unnamed"
+        for bind in section.binds:
+            raw_lower = bind.raw.lower()
+            if "alpn" in raw_lower and "h2" in raw_lower:
+                h2_binds.append(f"[{section_name}] bind {bind.raw}")
+            elif "proto h2" in raw_lower:
+                h2_binds.append(f"[{section_name}] bind {bind.raw}")
+    return bool(h2_binds), h2_binds
+
+
+def check_h2_stream_limits(config: HAProxyConfig) -> Finding:
+    """HAPR-H2-001: Check HTTP/2 stream limit configuration.
+
+    When HTTP/2 is enabled, the ``tune.h2.max-concurrent-streams``
+    directive should be set to limit the number of concurrent streams
+    per connection.  Additionally, ``tune.h2.initial-window-size`` and
+    ``tune.h2.max-frame-size`` provide further control over HTTP/2
+    resource consumption.  Without these limits, a client can open
+    many streams and exhaust server resources (Rapid Reset / CVE-2023-44487).
+
+    Returns PASS if stream limits are configured, FAIL if HTTP/2 is in
+    use but no stream limits are set, and N/A if HTTP/2 is not used.
+    """
+    h2_used, h2_evidence = _h2_in_use(config)
+
+    if not h2_used:
+        return Finding(
+            check_id="HAPR-H2-001",
+            status=Status.NOT_APPLICABLE,
+            message="HTTP/2 is not advertised on any bind line; stream limit check is not applicable.",
+            evidence="No bind lines with 'alpn h2' or 'proto h2' found.",
+        )
+
+    tuning_found: list[str] = []
+
+    max_streams = config.global_section.get_value("tune.h2.max-concurrent-streams")
+    if max_streams:
+        tuning_found.append(f"tune.h2.max-concurrent-streams {max_streams}")
+
+    initial_window = config.global_section.get_value("tune.h2.initial-window-size")
+    if initial_window:
+        tuning_found.append(f"tune.h2.initial-window-size {initial_window}")
+
+    max_frame = config.global_section.get_value("tune.h2.max-frame-size")
+    if max_frame:
+        tuning_found.append(f"tune.h2.max-frame-size {max_frame}")
+
+    if tuning_found:
+        return Finding(
+            check_id="HAPR-H2-001",
+            status=Status.PASS,
+            message="HTTP/2 stream limits are configured in the global section.",
+            evidence="; ".join(tuning_found),
+        )
+
+    return Finding(
+        check_id="HAPR-H2-001",
+        status=Status.FAIL,
+        message=(
+            "HTTP/2 is enabled but no stream limits are configured. "
+            "Set 'tune.h2.max-concurrent-streams' in the global section "
+            "to limit concurrent streams per connection and mitigate "
+            "HTTP/2 Rapid Reset attacks."
+        ),
+        evidence=f"H2 binds: {'; '.join(h2_evidence[:5])}; no tune.h2.* directives found.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# HAPR-H2-002  H2C smuggling prevention
+# ---------------------------------------------------------------------------
+
+def check_h2c_smuggling_prevention(config: HAProxyConfig) -> Finding:
+    """HAPR-H2-002: Check for H2C (HTTP/2 cleartext) smuggling prevention.
+
+    HTTP/2 cleartext (h2c) allows HTTP/2 without TLS.  When a non-SSL
+    bind line advertises ``h2``, clients can initiate an HTTP/2
+    connection over plaintext or request an upgrade via the ``Upgrade:
+    h2c`` header.  This can be exploited for request smuggling if
+    upstream servers interpret the upgrade differently.
+
+    Mitigation is to either:
+    * Only use ``h2`` over TLS (no non-SSL h2 binds), or
+    * Add ``http-request deny`` rules targeting the ``Upgrade: h2c``
+      header on non-SSL frontends.
+
+    Returns PASS if all h2 binds are over SSL (no h2c exposure), PARTIAL
+    if non-SSL h2 binds exist but deny rules for h2c upgrade are present,
+    FAIL if non-SSL h2 binds exist without protection, and N/A if HTTP/2
+    is not used at all.
+    """
+    h2_used, _ = _h2_in_use(config)
+
+    if not h2_used:
+        return Finding(
+            check_id="HAPR-H2-002",
+            status=Status.NOT_APPLICABLE,
+            message="HTTP/2 is not advertised on any bind line; H2C smuggling check is not applicable.",
+            evidence="No bind lines with 'alpn h2' or 'proto h2' found.",
+        )
+
+    # Find non-SSL bind lines that advertise h2 (these are h2c-capable)
+    h2c_binds: list[str] = []
+    h2c_sections: list = []
+
+    for section in config.all_frontends_and_listens:
+        section_name = getattr(section, "name", "unnamed") or "unnamed"
+        for bind in section.binds:
+            raw_lower = bind.raw.lower()
+            has_h2 = ("alpn" in raw_lower and "h2" in raw_lower) or "proto h2" in raw_lower
+            if has_h2 and not bind.ssl:
+                h2c_binds.append(f"[{section_name}] bind {bind.raw}")
+                if section not in h2c_sections:
+                    h2c_sections.append(section)
+
+    # If all h2 binds are over SSL, no h2c exposure
+    if not h2c_binds:
+        return Finding(
+            check_id="HAPR-H2-002",
+            status=Status.PASS,
+            message="All HTTP/2 bind lines use SSL/TLS; no H2C (cleartext) exposure.",
+            evidence="All h2 binds have SSL enabled.",
+        )
+
+    # Check if non-SSL h2 sections have deny rules for h2c upgrade
+    has_deny_rule = False
+    deny_evidence: list[str] = []
+
+    for section in h2c_sections:
+        section_name = getattr(section, "name", "unnamed") or "unnamed"
+        for directive in section.get("http-request"):
+            args_lower = directive.args.lower()
+            if "deny" in args_lower and "upgrade" in args_lower and "h2c" in args_lower:
+                has_deny_rule = True
+                deny_evidence.append(
+                    f"[{section_name}] http-request {directive.args}"
+                )
+
+    if has_deny_rule:
+        return Finding(
+            check_id="HAPR-H2-002",
+            status=Status.PARTIAL,
+            message=(
+                "Non-SSL HTTP/2 (h2c) bind lines exist but deny rules for "
+                "h2c upgrade are present. For full protection, consider "
+                "using HTTP/2 only over TLS."
+            ),
+            evidence=(
+                f"H2C binds: {'; '.join(h2c_binds[:3])}; "
+                f"Deny rules: {'; '.join(deny_evidence[:3])}"
+            ),
+        )
+
+    return Finding(
+        check_id="HAPR-H2-002",
+        status=Status.FAIL,
+        message=(
+            "Non-SSL HTTP/2 (h2c) bind lines are configured without "
+            "smuggling prevention. Add 'http-request deny if "
+            "{ req.hdr(upgrade) -i h2c }' or restrict HTTP/2 to TLS-only "
+            "binds to prevent H2C request smuggling."
+        ),
+        evidence=f"Unprotected H2C binds: {'; '.join(h2c_binds[:5])}",
+    )

@@ -4,6 +4,7 @@ socket paths, password strength, SSL verify, redirect ports, log format."""
 from __future__ import annotations
 
 import pytest
+from datetime import datetime, timedelta
 from hapr.parser import parse_string
 from hapr.models import Status
 from hapr.framework.checks.tls import _find_weak_ciphers, check_no_weak_ciphers
@@ -843,6 +844,15 @@ from hapr.framework.checks import (
     timeouts,
     access,
 )
+from hapr.framework.checks.tls import check_ocsp_stapling, check_fips_ciphers, check_mtls_client_verification, check_client_crl_configured
+from hapr.framework.checks.tls_live import check_certificate_key_size, check_certificate_expiry_warning, check_certificate_hostname_match
+from hapr.framework.checks.frontend import check_spoe_waf_filter, check_spoe_agent_timeout, check_compression_breach_risk, check_proxy_protocol_restricted
+from hapr.framework.checks.headers import check_cross_origin_resource_policy
+from hapr.framework.checks.global_defaults import check_lua_memory_limit, check_lua_forced_yield, check_peer_encryption
+from hapr.framework.checks.backend import check_cache_security
+from hapr.framework.checks.request import check_h2_stream_limits, check_h2c_smuggling_prevention
+from hapr.framework.checks.access import check_jwt_verification, check_jwt_algorithm_restriction, check_bot_detection, check_ip_reputation_integration, check_api_authentication, check_api_rate_limiting
+from hapr.models import ScanResult, CertInfo
 
 
 # ---------------------------------------------------------------------------
@@ -1354,3 +1364,898 @@ frontend ft_web
         finding = access.check_source_ip_restrictions(config)
         assert finding.check_id == "HAPR-ACL-007"
         assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# 1. HAPR-TLS-010: OCSP Stapling
+# ---------------------------------------------------------------------------
+
+class TestOCSPStapling:
+    """Test check_ocsp_stapling for HAPR-TLS-010."""
+
+    def test_pass_ocsp_update_on(self):
+        config = parse_string("""
+frontend ft_ssl
+    bind *:443 ssl crt /cert.pem ocsp-update on
+""")
+        finding = check_ocsp_stapling(config)
+        assert finding.check_id == "HAPR-TLS-010"
+        assert finding.status == Status.PASS
+
+    def test_fail_ssl_without_ocsp(self):
+        config = parse_string("""
+frontend ft_ssl
+    bind *:443 ssl crt /cert.pem
+""")
+        finding = check_ocsp_stapling(config)
+        assert finding.check_id == "HAPR-TLS-010"
+        assert finding.status == Status.FAIL
+
+    def test_na_no_ssl_binds(self):
+        config = parse_string("""
+frontend ft_plain
+    bind *:80
+""")
+        finding = check_ocsp_stapling(config)
+        assert finding.check_id == "HAPR-TLS-010"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# 2. HAPR-TLS-011: FIPS Ciphers
+# ---------------------------------------------------------------------------
+
+class TestFIPSCiphers:
+    """Test check_fips_ciphers for HAPR-TLS-011."""
+
+    def test_pass_fips_only_ciphers(self):
+        config = parse_string("""
+global
+    ssl-default-bind-ciphers ECDHE+AESGCM:DHE+AESGCM
+
+frontend ft_ssl
+    bind *:443 ssl crt /cert.pem
+""")
+        finding = check_fips_ciphers(config)
+        assert finding.check_id == "HAPR-TLS-011"
+        assert finding.status == Status.PASS
+
+    def test_partial_chacha20_cipher(self):
+        config = parse_string("""
+global
+    ssl-default-bind-ciphers ECDHE+AESGCM:ECDHE+CHACHA20
+
+frontend ft_ssl
+    bind *:443 ssl crt /cert.pem
+""")
+        finding = check_fips_ciphers(config)
+        assert finding.check_id == "HAPR-TLS-011"
+        assert finding.status == Status.PARTIAL
+
+    def test_fail_no_cipher_config_with_ssl(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+
+frontend ft_ssl
+    bind *:443 ssl crt /cert.pem
+""")
+        finding = check_fips_ciphers(config)
+        assert finding.check_id == "HAPR-TLS-011"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# 3. HAPR-MTLS-001: mTLS Client Verification
+# ---------------------------------------------------------------------------
+
+class TestMTLSClientVerification:
+    """Test check_mtls_client_verification for HAPR-MTLS-001."""
+
+    def test_pass_verify_required_with_ca_file(self):
+        config = parse_string("""
+frontend ft_mtls
+    bind *:443 ssl crt /cert.pem verify required ca-file /ca.pem
+""")
+        finding = check_mtls_client_verification(config)
+        assert finding.check_id == "HAPR-MTLS-001"
+        assert finding.status == Status.PASS
+
+    def test_partial_verify_optional(self):
+        config = parse_string("""
+frontend ft_mtls
+    bind *:443 ssl crt /cert.pem verify optional ca-file /ca.pem
+""")
+        finding = check_mtls_client_verification(config)
+        assert finding.check_id == "HAPR-MTLS-001"
+        assert finding.status == Status.PARTIAL
+
+    def test_na_no_ssl_binds(self):
+        config = parse_string("""
+frontend ft_plain
+    bind *:80
+""")
+        finding = check_mtls_client_verification(config)
+        assert finding.check_id == "HAPR-MTLS-001"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# 4. HAPR-MTLS-002: Client CRL Configured
+# ---------------------------------------------------------------------------
+
+class TestClientCRLConfigured:
+    """Test check_client_crl_configured for HAPR-MTLS-002."""
+
+    def test_pass_crl_file_present(self):
+        config = parse_string("""
+frontend ft_mtls
+    bind *:443 ssl crt /cert.pem verify required ca-file /ca.pem crl-file /crl.pem
+""")
+        finding = check_client_crl_configured(config)
+        assert finding.check_id == "HAPR-MTLS-002"
+        assert finding.status == Status.PASS
+
+    def test_fail_no_crl_file(self):
+        config = parse_string("""
+frontend ft_mtls
+    bind *:443 ssl crt /cert.pem verify required ca-file /ca.pem
+""")
+        finding = check_client_crl_configured(config)
+        assert finding.check_id == "HAPR-MTLS-002"
+        assert finding.status == Status.FAIL
+
+    def test_na_no_mtls_binds(self):
+        config = parse_string("""
+frontend ft_ssl
+    bind *:443 ssl crt /cert.pem
+""")
+        finding = check_client_crl_configured(config)
+        assert finding.check_id == "HAPR-MTLS-002"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# 5. HAPR-SCAN-007: Certificate Key Size (live scan)
+# ---------------------------------------------------------------------------
+
+class TestCertificateKeySize:
+    """Test check_certificate_key_size for HAPR-SCAN-007."""
+
+    def test_pass_adequate_key_size(self):
+        config = parse_string("global\n  log stdout format raw local0")
+        scan_results = [ScanResult(
+            target="example.com",
+            port=443,
+            cert_info=CertInfo(
+                key_size=4096,
+                signature_algorithm="sha256WithRSAEncryption",
+            ),
+        )]
+        finding = check_certificate_key_size(config, scan_results)
+        assert finding.check_id == "HAPR-SCAN-007"
+        assert finding.status == Status.PASS
+
+    def test_fail_small_key_size(self):
+        config = parse_string("global\n  log stdout format raw local0")
+        scan_results = [ScanResult(
+            target="example.com",
+            port=443,
+            cert_info=CertInfo(
+                key_size=1024,
+                signature_algorithm="sha256WithRSAEncryption",
+            ),
+        )]
+        finding = check_certificate_key_size(config, scan_results)
+        assert finding.check_id == "HAPR-SCAN-007"
+        assert finding.status == Status.FAIL
+
+    def test_na_empty_scan_results(self):
+        config = parse_string("global\n  log stdout format raw local0")
+        finding = check_certificate_key_size(config, [])
+        assert finding.check_id == "HAPR-SCAN-007"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# 6. HAPR-SCAN-008: Certificate Expiry Warning (live scan)
+# ---------------------------------------------------------------------------
+
+class TestCertificateExpiryWarning:
+    """Test check_certificate_expiry_warning for HAPR-SCAN-008."""
+
+    def test_pass_far_future_expiry(self):
+        config = parse_string("global\n  log stdout format raw local0")
+        future_date = (datetime.now() + timedelta(days=90)).strftime("%Y-%m-%d %H:%M:%S")
+        scan_results = [ScanResult(
+            target="example.com",
+            port=443,
+            cert_info=CertInfo(
+                not_after=future_date,
+            ),
+        )]
+        finding = check_certificate_expiry_warning(config, scan_results)
+        assert finding.check_id == "HAPR-SCAN-008"
+        assert finding.status == Status.PASS
+
+    def test_partial_expiring_soon(self):
+        config = parse_string("global\n  log stdout format raw local0")
+        soon_date = (datetime.now() + timedelta(days=15)).strftime("%Y-%m-%d %H:%M:%S")
+        scan_results = [ScanResult(
+            target="example.com",
+            port=443,
+            cert_info=CertInfo(
+                not_after=soon_date,
+            ),
+        )]
+        finding = check_certificate_expiry_warning(config, scan_results)
+        assert finding.check_id == "HAPR-SCAN-008"
+        assert finding.status == Status.PARTIAL
+
+    def test_na_empty_scan_results(self):
+        config = parse_string("global\n  log stdout format raw local0")
+        finding = check_certificate_expiry_warning(config, [])
+        assert finding.check_id == "HAPR-SCAN-008"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# 7. HAPR-SCAN-009: Certificate Hostname Match (live scan)
+# ---------------------------------------------------------------------------
+
+class TestCertificateHostnameMatch:
+    """Test check_certificate_hostname_match for HAPR-SCAN-009."""
+
+    def test_pass_matching_hostname(self):
+        config = parse_string("global\n  log stdout format raw local0")
+        scan_results = [ScanResult(
+            target="example.com",
+            port=443,
+            cert_info=CertInfo(
+                subject="CN=example.com",
+                san_entries=["example.com"],
+            ),
+        )]
+        finding = check_certificate_hostname_match(config, scan_results)
+        assert finding.check_id == "HAPR-SCAN-009"
+        assert finding.status == Status.PASS
+
+    def test_fail_mismatched_hostname(self):
+        config = parse_string("global\n  log stdout format raw local0")
+        scan_results = [ScanResult(
+            target="other.com",
+            port=443,
+            cert_info=CertInfo(
+                subject="CN=example.com",
+                san_entries=["example.com"],
+            ),
+        )]
+        finding = check_certificate_hostname_match(config, scan_results)
+        assert finding.check_id == "HAPR-SCAN-009"
+        assert finding.status == Status.FAIL
+
+    def test_na_empty_scan_results(self):
+        config = parse_string("global\n  log stdout format raw local0")
+        finding = check_certificate_hostname_match(config, [])
+        assert finding.check_id == "HAPR-SCAN-009"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# 8. HAPR-SPOE-001: SPOE WAF Filter
+# ---------------------------------------------------------------------------
+
+class TestSPOEWAFFilter:
+    """Test check_spoe_waf_filter for HAPR-SPOE-001."""
+
+    def test_pass_spoe_filter_present(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    filter spoe engine modsecurity config /etc/haproxy/spoe-modsecurity.conf
+    default_backend bk_web
+""")
+        finding = check_spoe_waf_filter(config)
+        assert finding.check_id == "HAPR-SPOE-001"
+        assert finding.status == Status.PASS
+
+    def test_fail_no_spoe_filter(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_spoe_waf_filter(config)
+        assert finding.check_id == "HAPR-SPOE-001"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# 9. HAPR-SPOE-002: SPOE Agent Timeout
+# ---------------------------------------------------------------------------
+
+class TestSPOEAgentTimeout:
+    """Test check_spoe_agent_timeout for HAPR-SPOE-002."""
+
+    def test_pass_spoe_with_timeout(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    filter spoe engine modsecurity config /etc/haproxy/spoe-modsecurity.conf
+    timeout hello 100ms
+    default_backend bk_web
+""")
+        finding = check_spoe_agent_timeout(config)
+        assert finding.check_id == "HAPR-SPOE-002"
+        assert finding.status == Status.PASS
+
+    def test_fail_spoe_without_timeout(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    filter spoe engine modsecurity config /etc/haproxy/spoe-modsecurity.conf
+    default_backend bk_web
+""")
+        finding = check_spoe_agent_timeout(config)
+        assert finding.check_id == "HAPR-SPOE-002"
+        assert finding.status == Status.FAIL
+
+    def test_na_no_spoe_filter(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_spoe_agent_timeout(config)
+        assert finding.check_id == "HAPR-SPOE-002"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# 10. HAPR-COMP-001: Compression BREACH Risk
+# ---------------------------------------------------------------------------
+
+class TestCompressionBREACH:
+    """Test check_compression_breach_risk for HAPR-COMP-001."""
+
+    def test_pass_no_compression(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_compression_breach_risk(config)
+        assert finding.check_id == "HAPR-COMP-001"
+        assert finding.status == Status.PASS
+
+    def test_partial_ssl_with_compression(self):
+        config = parse_string("frontend fe\n  bind :443 ssl crt /cert.pem\n  compression algo gzip")
+        finding = check_compression_breach_risk(config)
+        assert finding.check_id == "HAPR-COMP-001"
+        assert finding.status == Status.PARTIAL
+
+
+# ---------------------------------------------------------------------------
+# 11. HAPR-PROXY-001: Proxy Protocol Restricted
+# ---------------------------------------------------------------------------
+
+class TestProxyProtocolRestricted:
+    """Test check_proxy_protocol_restricted for HAPR-PROXY-001."""
+
+    def test_pass_accept_proxy_with_src_acl(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80 accept-proxy
+    acl trusted_proxy src 10.0.0.0/8
+    http-request deny if !trusted_proxy
+    default_backend bk_web
+""")
+        finding = check_proxy_protocol_restricted(config)
+        assert finding.check_id == "HAPR-PROXY-001"
+        assert finding.status == Status.PASS
+
+    def test_fail_accept_proxy_no_src_acl(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80 accept-proxy
+    default_backend bk_web
+""")
+        finding = check_proxy_protocol_restricted(config)
+        assert finding.check_id == "HAPR-PROXY-001"
+        assert finding.status == Status.FAIL
+
+    def test_na_no_accept_proxy(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_proxy_protocol_restricted(config)
+        assert finding.check_id == "HAPR-PROXY-001"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# 12. HAPR-HDR-009: Cross-Origin-Resource-Policy Header
+# ---------------------------------------------------------------------------
+
+class TestCORPHeader:
+    """Test check_cross_origin_resource_policy for HAPR-HDR-009."""
+
+    def test_pass_corp_header_set(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header Cross-Origin-Resource-Policy same-origin
+""")
+        finding = check_cross_origin_resource_policy(config)
+        assert finding.check_id == "HAPR-HDR-009"
+        assert finding.status == Status.PASS
+
+    def test_fail_corp_header_missing(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = check_cross_origin_resource_policy(config)
+        assert finding.check_id == "HAPR-HDR-009"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# 13. HAPR-LUA-001: Lua Memory Limit
+# ---------------------------------------------------------------------------
+
+class TestLuaMemoryLimit:
+    """Test check_lua_memory_limit for HAPR-LUA-001."""
+
+    def test_pass_lua_with_maxmem(self):
+        config = parse_string("""
+global
+    lua-load /etc/haproxy/lua/script.lua
+    tune.lua.maxmem 64
+""")
+        finding = check_lua_memory_limit(config)
+        assert finding.check_id == "HAPR-LUA-001"
+        assert finding.status == Status.PASS
+
+    def test_fail_lua_without_maxmem(self):
+        config = parse_string("""
+global
+    lua-load /etc/haproxy/lua/script.lua
+""")
+        finding = check_lua_memory_limit(config)
+        assert finding.check_id == "HAPR-LUA-001"
+        assert finding.status == Status.FAIL
+
+    def test_na_no_lua_load(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = check_lua_memory_limit(config)
+        assert finding.check_id == "HAPR-LUA-001"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# 14. HAPR-LUA-002: Lua Forced Yield
+# ---------------------------------------------------------------------------
+
+class TestLuaForcedYield:
+    """Test check_lua_forced_yield for HAPR-LUA-002."""
+
+    def test_pass_lua_with_forced_yield(self):
+        config = parse_string("""
+global
+    lua-load /etc/haproxy/lua/script.lua
+    tune.lua.forced-yield 10000
+""")
+        finding = check_lua_forced_yield(config)
+        assert finding.check_id == "HAPR-LUA-002"
+        assert finding.status == Status.PASS
+
+    def test_fail_lua_without_forced_yield(self):
+        config = parse_string("""
+global
+    lua-load /etc/haproxy/lua/script.lua
+""")
+        finding = check_lua_forced_yield(config)
+        assert finding.check_id == "HAPR-LUA-002"
+        assert finding.status == Status.FAIL
+
+    def test_na_no_lua_load(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = check_lua_forced_yield(config)
+        assert finding.check_id == "HAPR-LUA-002"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# 15. HAPR-PEER-001: Peer Encryption
+# ---------------------------------------------------------------------------
+
+class TestPeerEncryption:
+    """Test check_peer_encryption for HAPR-PEER-001."""
+
+    def test_pass_peers_with_ssl(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+
+defaults
+    mode http
+
+backend bk_web
+    peers mypeers ssl crt /cert.pem
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_peer_encryption(config)
+        assert finding.check_id == "HAPR-PEER-001"
+        assert finding.status == Status.PASS
+
+    def test_fail_peers_without_ssl(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+
+defaults
+    mode http
+
+backend bk_web
+    peers mypeers
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_peer_encryption(config)
+        assert finding.check_id == "HAPR-PEER-001"
+        assert finding.status == Status.FAIL
+
+    def test_na_no_peers_config(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_peer_encryption(config)
+        assert finding.check_id == "HAPR-PEER-001"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# 16. HAPR-CACHE-001: Cache Security
+# ---------------------------------------------------------------------------
+
+class TestCacheSecurity:
+    """Test check_cache_security for HAPR-CACHE-001."""
+
+    def test_pass_cache_with_controls(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+
+frontend ft_web
+    bind *:80
+    http-request cache-use my_cache
+    http-response cache-store my_cache
+    total-max-size 64
+    max-age 3600
+    default_backend bk_web
+""")
+        finding = check_cache_security(config)
+        assert finding.check_id == "HAPR-CACHE-001"
+        assert finding.status == Status.PASS
+
+    def test_fail_cache_without_controls(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    http-request cache-use my_cache
+    http-response cache-store my_cache
+    default_backend bk_web
+""")
+        finding = check_cache_security(config)
+        assert finding.check_id == "HAPR-CACHE-001"
+        assert finding.status == Status.FAIL
+
+    def test_na_no_cache(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_cache_security(config)
+        assert finding.check_id == "HAPR-CACHE-001"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# 17. HAPR-H2-001: H2 Stream Limits
+# ---------------------------------------------------------------------------
+
+class TestH2StreamLimits:
+    """Test check_h2_stream_limits for HAPR-H2-001."""
+
+    def test_pass_h2_with_stream_limits(self):
+        config = parse_string("""
+global
+    tune.h2.max-concurrent-streams 100
+
+frontend ft_ssl
+    bind *:443 ssl crt /cert.pem alpn h2,http/1.1
+    default_backend bk_web
+""")
+        finding = check_h2_stream_limits(config)
+        assert finding.check_id == "HAPR-H2-001"
+        assert finding.status == Status.PASS
+
+    def test_fail_h2_without_stream_limits(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+
+frontend ft_ssl
+    bind *:443 ssl crt /cert.pem alpn h2,http/1.1
+    default_backend bk_web
+""")
+        finding = check_h2_stream_limits(config)
+        assert finding.check_id == "HAPR-H2-001"
+        assert finding.status == Status.FAIL
+
+    def test_na_no_h2_binds(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_h2_stream_limits(config)
+        assert finding.check_id == "HAPR-H2-001"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# 18. HAPR-H2-002: H2C Smuggling Prevention
+# ---------------------------------------------------------------------------
+
+class TestH2CSmugglingPrevention:
+    """Test check_h2c_smuggling_prevention for HAPR-H2-002."""
+
+    def test_pass_h2_only_over_ssl(self):
+        config = parse_string("""
+frontend ft_ssl
+    bind *:443 ssl crt /cert.pem alpn h2,http/1.1
+    default_backend bk_web
+""")
+        finding = check_h2c_smuggling_prevention(config)
+        assert finding.check_id == "HAPR-H2-002"
+        assert finding.status == Status.PASS
+
+    def test_fail_non_ssl_h2_without_deny(self):
+        config = parse_string("""
+frontend ft_plain
+    bind *:80 proto h2
+    default_backend bk_web
+""")
+        finding = check_h2c_smuggling_prevention(config)
+        assert finding.check_id == "HAPR-H2-002"
+        assert finding.status == Status.FAIL
+
+    def test_na_no_h2(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_h2c_smuggling_prevention(config)
+        assert finding.check_id == "HAPR-H2-002"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# 19. HAPR-JWT-001: JWT Verification
+# ---------------------------------------------------------------------------
+
+class TestJWTVerification:
+    """Test check_jwt_verification for HAPR-JWT-001."""
+
+    def test_pass_jwt_verify_present(self):
+        config = parse_string("""
+frontend ft_api
+    bind *:443 ssl crt /cert.pem
+    http-request set-var(txn.bearer) req.hdr(Authorization),word(2) jwt_verify(txn.bearer,/etc/haproxy/pubkey.pem)
+    default_backend bk_api
+""")
+        finding = check_jwt_verification(config)
+        assert finding.check_id == "HAPR-JWT-001"
+        assert finding.status == Status.PASS
+
+    def test_fail_jwt_referenced_no_verification(self):
+        """JWT keyword present in config but no verification directive."""
+        config = parse_string("""
+frontend ft_api
+    bind *:443 ssl crt /cert.pem
+    http-request set-header X-JWT-Status ok
+    default_backend bk_api
+""")
+        finding = check_jwt_verification(config)
+        assert finding.check_id == "HAPR-JWT-001"
+        assert finding.status == Status.FAIL
+
+    def test_na_no_jwt_patterns(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_jwt_verification(config)
+        assert finding.check_id == "HAPR-JWT-001"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# 20. HAPR-JWT-002: JWT Algorithm Restriction
+# ---------------------------------------------------------------------------
+
+class TestJWTAlgorithmRestriction:
+    """Test check_jwt_algorithm_restriction for HAPR-JWT-002."""
+
+    def test_pass_jwt_with_rs256_algorithm(self):
+        config = parse_string("""
+frontend ft_api
+    bind *:443 ssl crt /cert.pem
+    http-request set-var(txn.bearer) req.hdr(Authorization),word(2) jwt_verify(txn.bearer,/key.pem,RS256)
+    default_backend bk_api
+""")
+        finding = check_jwt_algorithm_restriction(config)
+        assert finding.check_id == "HAPR-JWT-002"
+        assert finding.status == Status.PASS
+
+    def test_na_no_jwt_config(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_jwt_algorithm_restriction(config)
+        assert finding.check_id == "HAPR-JWT-002"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# 21. HAPR-BOT-001: Bot Detection
+# ---------------------------------------------------------------------------
+
+class TestBotDetection:
+    """Test check_bot_detection for HAPR-BOT-001."""
+
+    def test_pass_bot_acl_with_deny(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    acl bad_bot hdr(User-Agent) -i bot
+    http-request deny if bad_bot
+    default_backend bk_web
+""")
+        finding = check_bot_detection(config)
+        assert finding.check_id == "HAPR-BOT-001"
+        assert finding.status == Status.PASS
+
+    def test_fail_no_bot_detection(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_bot_detection(config)
+        assert finding.check_id == "HAPR-BOT-001"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# 22. HAPR-IPREP-001: IP Reputation Integration
+# ---------------------------------------------------------------------------
+
+class TestIPReputationIntegration:
+    """Test check_ip_reputation_integration for HAPR-IPREP-001."""
+
+    def test_pass_blocklist_with_deny(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    acl blocklist src -f /etc/haproxy/blocklist.map
+    http-request deny if blocklist
+    default_backend bk_web
+""")
+        finding = check_ip_reputation_integration(config)
+        assert finding.check_id == "HAPR-IPREP-001"
+        assert finding.status == Status.PASS
+
+    def test_fail_no_ip_reputation(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_ip_reputation_integration(config)
+        assert finding.check_id == "HAPR-IPREP-001"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# 23. HAPR-API-001: API Authentication
+# ---------------------------------------------------------------------------
+
+class TestAPIAuthentication:
+    """Test check_api_authentication for HAPR-API-001."""
+
+    def test_pass_api_path_with_auth(self):
+        config = parse_string("""
+frontend ft_api
+    bind *:443 ssl crt /cert.pem
+    acl is_api path_beg /api
+    acl has_auth hdr(Authorization) -m found
+    http-request deny if is_api !has_auth
+    default_backend bk_api
+""")
+        finding = check_api_authentication(config)
+        assert finding.check_id == "HAPR-API-001"
+        assert finding.status == Status.PASS
+
+    def test_na_no_api_paths(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_api_authentication(config)
+        assert finding.check_id == "HAPR-API-001"
+        assert finding.status == Status.NOT_APPLICABLE
+
+    def test_fail_api_path_without_auth(self):
+        config = parse_string("""
+frontend ft_api
+    bind *:443 ssl crt /cert.pem
+    acl is_api path_beg /api
+    use_backend bk_api if is_api
+    default_backend bk_web
+""")
+        finding = check_api_authentication(config)
+        assert finding.check_id == "HAPR-API-001"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# 24. HAPR-API-002: API Rate Limiting
+# ---------------------------------------------------------------------------
+
+class TestAPIRateLimiting:
+    """Test check_api_rate_limiting for HAPR-API-002."""
+
+    def test_pass_api_path_with_rate_limit(self):
+        config = parse_string("""
+frontend ft_api
+    bind *:443 ssl crt /cert.pem
+    acl is_api path_beg /api
+    stick-table type ip size 100k expire 30s store http_req_rate(10s)
+    http-request track-sc0 src if is_api
+    http-request deny deny_status 429 if is_api { sc_http_req_rate(0) gt 100 }
+    default_backend bk_api
+""")
+        finding = check_api_rate_limiting(config)
+        assert finding.check_id == "HAPR-API-002"
+        assert finding.status == Status.PASS
+
+    def test_na_no_api_paths(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_api_rate_limiting(config)
+        assert finding.check_id == "HAPR-API-002"
+        assert finding.status == Status.NOT_APPLICABLE

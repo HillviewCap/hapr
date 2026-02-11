@@ -343,3 +343,176 @@ def check_ssl_dh_param(config: HAProxyConfig) -> Finding:
             message=f"DH parameter size is only {value} bits — should be >= 2048",
             evidence=f"tune.ssl.default-dh-param {value}",
         )
+
+
+# ---------------------------------------------------------------------------
+# HAPR-LUA-001  Lua memory limit
+# ---------------------------------------------------------------------------
+
+def _lua_is_loaded(config: HAProxyConfig) -> bool:
+    """Return True if any Lua script is loaded in the global section."""
+    return (
+        config.global_section.has("lua-load")
+        or config.global_section.has("lua-load-per-thread")
+    )
+
+
+def check_lua_memory_limit(config: HAProxyConfig) -> Finding:
+    """HAPR-LUA-001: Check if Lua memory limit is configured.
+
+    When Lua scripts are loaded via ``lua-load`` or ``lua-load-per-thread``,
+    the ``tune.lua.maxmem`` directive should be set to cap the amount of
+    memory a Lua context can allocate.  Without a limit, a misbehaving
+    script can exhaust all available memory and crash HAProxy.
+
+    Returns PASS if ``tune.lua.maxmem`` is set, FAIL if Lua is loaded
+    but the limit is missing, and N/A if no Lua scripts are loaded.
+    """
+    if not _lua_is_loaded(config):
+        return Finding(
+            check_id="HAPR-LUA-001",
+            status=Status.NOT_APPLICABLE,
+            message="No Lua scripts are loaded; memory limit check is not applicable.",
+            evidence="No 'lua-load' or 'lua-load-per-thread' directive found in global section.",
+        )
+
+    maxmem = config.global_section.get_value("tune.lua.maxmem")
+    if maxmem:
+        return Finding(
+            check_id="HAPR-LUA-001",
+            status=Status.PASS,
+            message=f"Lua memory limit is configured: tune.lua.maxmem {maxmem}",
+            evidence=f"tune.lua.maxmem {maxmem}",
+        )
+
+    return Finding(
+        check_id="HAPR-LUA-001",
+        status=Status.FAIL,
+        message=(
+            "Lua scripts are loaded but no memory limit is set. "
+            "Add 'tune.lua.maxmem <megabytes>' to the global section to "
+            "prevent runaway scripts from exhausting memory."
+        ),
+        evidence="lua-load present but tune.lua.maxmem not found in global section.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# HAPR-LUA-002  Lua forced yield
+# ---------------------------------------------------------------------------
+
+def check_lua_forced_yield(config: HAProxyConfig) -> Finding:
+    """HAPR-LUA-002: Check if Lua forced yield is configured.
+
+    The ``tune.lua.forced-yield`` directive sets the maximum number of
+    instructions a Lua script can execute before being forced to yield
+    execution back to HAProxy.  Without this, a long-running Lua script
+    can block HAProxy's event loop and cause latency spikes or hangs.
+
+    Returns PASS if ``tune.lua.forced-yield`` is set, FAIL if Lua is
+    loaded but the directive is missing, and N/A if no Lua scripts are
+    loaded.
+    """
+    if not _lua_is_loaded(config):
+        return Finding(
+            check_id="HAPR-LUA-002",
+            status=Status.NOT_APPLICABLE,
+            message="No Lua scripts are loaded; forced yield check is not applicable.",
+            evidence="No 'lua-load' or 'lua-load-per-thread' directive found in global section.",
+        )
+
+    forced_yield = config.global_section.get_value("tune.lua.forced-yield")
+    if forced_yield:
+        return Finding(
+            check_id="HAPR-LUA-002",
+            status=Status.PASS,
+            message=f"Lua forced yield is configured: tune.lua.forced-yield {forced_yield}",
+            evidence=f"tune.lua.forced-yield {forced_yield}",
+        )
+
+    return Finding(
+        check_id="HAPR-LUA-002",
+        status=Status.FAIL,
+        message=(
+            "Lua scripts are loaded but no forced yield is configured. "
+            "Add 'tune.lua.forced-yield <instructions>' to the global section "
+            "to prevent Lua scripts from blocking HAProxy's event loop."
+        ),
+        evidence="lua-load present but tune.lua.forced-yield not found in global section.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# HAPR-PEER-001  Peer encryption
+# ---------------------------------------------------------------------------
+
+def check_peer_encryption(config: HAProxyConfig) -> Finding:
+    """HAPR-PEER-001: Check if peer communication sections use encryption.
+
+    HAProxy ``peers`` sections define stick-table replication between
+    cluster nodes.  Without SSL/TLS, peer traffic (including session data
+    and stick-table contents) travels in cleartext, making it vulnerable
+    to eavesdropping and tampering.
+
+    The parser does not create a dedicated peers model, so this check
+    scans all raw directives across every accessible section for ``peers``
+    references and then looks for encryption keywords (``ssl``, ``crt``,
+    ``ca-file``) in those directives.
+
+    Returns PASS if peers are found with SSL/TLS, FAIL if peers are
+    found without encryption, and N/A if no peer configuration is
+    detected.
+    """
+    peer_directives: list[str] = []
+    has_encryption = False
+
+    # Check global section directives for "peers" keyword
+    for directive in config.global_section.directives:
+        combined = f"{directive.keyword} {directive.args}".strip()
+        if "peers" in directive.keyword.lower() or "peers" in directive.args.lower():
+            peer_directives.append(combined)
+            combined_lower = combined.lower()
+            if "ssl" in combined_lower or "crt" in combined_lower or "ca-file" in combined_lower:
+                has_encryption = True
+
+    # Check all proxy sections (frontends, backends, listens, defaults)
+    all_proxy_sections = (
+        list(config.all_frontends_and_listens)
+        + list(config.backends)
+        + list(config.defaults)
+    )
+    for section in all_proxy_sections:
+        for directive in section.directives:
+            combined = f"{directive.keyword} {directive.args}".strip()
+            if "peers" in directive.keyword.lower() or "peers" in directive.args.lower():
+                peer_directives.append(combined)
+                combined_lower = combined.lower()
+                if "ssl" in combined_lower or "crt" in combined_lower or "ca-file" in combined_lower:
+                    has_encryption = True
+
+    if not peer_directives:
+        return Finding(
+            check_id="HAPR-PEER-001",
+            status=Status.NOT_APPLICABLE,
+            message="No peer configuration found; peer encryption check is not applicable.",
+            evidence="No 'peers' directives or references found in any section.",
+        )
+
+    if has_encryption:
+        return Finding(
+            check_id="HAPR-PEER-001",
+            status=Status.PASS,
+            message="Peer communication is configured with SSL/TLS encryption.",
+            evidence="; ".join(peer_directives[:5]),
+        )
+
+    return Finding(
+        check_id="HAPR-PEER-001",
+        status=Status.FAIL,
+        message=(
+            "Peer communication is configured without encryption. "
+            "Add 'ssl', 'crt', and 'ca-file' options to peer sections "
+            "to encrypt stick-table replication traffic."
+        ),
+        evidence="; ".join(peer_directives[:5]),
+    )

@@ -427,6 +427,116 @@ checks:
         - SRG-APP-000439-WSR-000156
     check_function: tls.check_ssl_default_server_options
 
+  - id: HAPR-TLS-010
+    title: OCSP Stapling Configured
+    category: tls
+    tier: level2
+    severity: medium
+    weight: 4
+    description: >
+      Verify that OCSP stapling is configured to provide certificate revocation
+      status to clients without requiring them to contact the CA directly.
+    rationale: >
+      Without OCSP stapling, clients must contact the CA's OCSP responder
+      independently, which adds latency and exposes browsing patterns. OCSP
+      stapling embeds the revocation status in the TLS handshake, improving
+      both privacy and performance.
+    remediation: >
+      Configure OCSP stapling on bind lines with 'ocsp-update on' or provide
+      pre-fetched OCSP responses alongside certificates.
+    references:
+      nist:
+        - SC-8(1)
+        - SC-13
+      owasp:
+        - A02:2021 Cryptographic Failures
+      stig:
+        - SRG-APP-000439-WSR-000156
+    check_function: tls.check_ocsp_stapling
+
+  - id: HAPR-TLS-011
+    title: FIPS-Approved Cipher Suites Only
+    category: tls
+    tier: level3
+    severity: high
+    weight: 7
+    description: >
+      Verify that only FIPS 140-2 approved cipher suites are configured,
+      excluding non-approved algorithms such as CHACHA20, CAMELLIA, and SEED.
+    rationale: >
+      FIPS 140-2 compliance requires the use of NIST-approved cryptographic
+      algorithms. Non-FIPS ciphers may be strong but are not certified for
+      use in government or regulated environments.
+    remediation: >
+      Configure ssl-default-bind-ciphers to include only FIPS-approved
+      algorithms such as AES-GCM with SHA-256/384 and ECDHE/DHE key exchange.
+      Remove CHACHA20, CAMELLIA, SEED, and other non-FIPS ciphers.
+    references:
+      nist:
+        - SC-13
+        - SC-12
+      owasp:
+        - A02:2021 Cryptographic Failures
+      stig:
+        - SRG-APP-000179-WSR-000110
+        - SRG-APP-000439-WSR-000156
+    check_function: tls.check_fips_ciphers
+
+  - id: HAPR-MTLS-001
+    title: Mutual TLS Client Verification
+    category: tls
+    tier: level3
+    severity: high
+    weight: 7
+    description: >
+      Verify that mutual TLS (mTLS) is configured with client certificate
+      verification on SSL bind lines for zero-trust environments.
+    rationale: >
+      Mutual TLS ensures both server and client authenticate each other
+      using certificates. This is essential for zero-trust architectures
+      where every connection must be verified, preventing unauthorized
+      clients from accessing services.
+    remediation: >
+      Add 'verify required' and 'ca-file <path>' to SSL bind lines.
+      Example: bind :443 ssl crt /etc/haproxy/cert.pem verify required ca-file /etc/haproxy/ca.pem
+    references:
+      nist:
+        - IA-3
+        - IA-5(2)
+        - SC-8(1)
+      owasp:
+        - A07:2021 Identification and Authentication Failures
+      stig:
+        - SRG-APP-000219-WSR-000036
+        - SRG-APP-000427-WSR-000186
+    check_function: tls.check_mtls_client_verification
+
+  - id: HAPR-MTLS-002
+    title: Client Certificate CRL Configured
+    category: tls
+    tier: level3
+    severity: medium
+    weight: 4
+    description: >
+      Verify that Certificate Revocation Lists (CRLs) are configured for
+      client certificate verification to handle revoked certificates.
+    rationale: >
+      Without CRL checking, revoked client certificates may still be accepted
+      for authentication. CRL files ensure that compromised or decommissioned
+      client certificates are properly rejected.
+    remediation: >
+      Add 'crl-file <path>' to bind lines that use 'verify required'.
+      Example: bind :443 ssl crt /etc/haproxy/cert.pem verify required ca-file /etc/haproxy/ca.pem crl-file /etc/haproxy/crl.pem
+    references:
+      nist:
+        - IA-5(2)
+        - SC-12
+      owasp:
+        - A07:2021 Identification and Authentication Failures
+      stig:
+        - SRG-APP-000175-WSR-000095
+    check_function: tls.check_client_crl_configured
+
   # ---------------------------------------------------------------------------
   # HAPR-ACL: Access Control
   # ---------------------------------------------------------------------------
@@ -644,6 +754,182 @@ checks:
         - SRG-APP-000315-WSR-000004
         - SRG-APP-000141-WSR-000076
     check_function: access.check_source_ip_restrictions
+
+  - id: HAPR-JWT-001
+    title: JWT Signature Verification Enforced
+    category: access
+    tier: level3
+    severity: high
+    weight: 7
+    description: >
+      Verify that JWT (JSON Web Token) signature verification is enforced
+      at the proxy level for API gateway configurations.
+    rationale: >
+      Without JWT verification at the proxy, unsigned or tampered tokens
+      may reach backend services. HAProxy 2.5+ supports native JWT
+      verification, and Lua scripts can provide similar functionality
+      in older versions.
+    remediation: >
+      Configure JWT verification using HAProxy's native jwt_verify
+      functionality or a Lua script. Ensure all API endpoints validate
+      the Authorization header before forwarding requests.
+    references:
+      nist:
+        - IA-2
+        - IA-5
+        - AC-3
+      owasp:
+        - A07:2021 Identification and Authentication Failures
+      stig:
+        - SRG-APP-000219-WSR-000036
+    check_function: access.check_jwt_verification
+
+  - id: HAPR-JWT-002
+    title: JWT Algorithm Restriction (No alg:none)
+    category: access
+    tier: level3
+    severity: critical
+    weight: 10
+    description: >
+      Verify that JWT configurations restrict allowed signing algorithms
+      and prevent the alg:none attack vector.
+    rationale: >
+      The JWT alg:none attack allows attackers to bypass signature
+      verification entirely by specifying "none" as the algorithm.
+      Restricting algorithms to specific approved values (RS256, ES256, etc.)
+      prevents this critical attack vector.
+    remediation: >
+      Explicitly specify allowed JWT algorithms in verification configuration.
+      Never accept 'none' as a valid algorithm. Example: verify using RS256 or ES256 only.
+    references:
+      nist:
+        - SC-13
+        - IA-5
+      owasp:
+        - A02:2021 Cryptographic Failures
+        - A07:2021 Identification and Authentication Failures
+      stig:
+        - SRG-APP-000179-WSR-000110
+    check_function: access.check_jwt_algorithm_restriction
+
+  - id: HAPR-BOT-001
+    title: Bot Detection Patterns Configured
+    category: access
+    tier: level3
+    severity: medium
+    weight: 4
+    description: >
+      Verify that bot detection patterns are configured to filter
+      automated traffic based on User-Agent and behavioral patterns.
+    rationale: >
+      Automated bots can consume resources, scrape content, and probe
+      for vulnerabilities. User-Agent filtering at the proxy level
+      provides a first line of defense against known malicious bots
+      and crawlers.
+    remediation: >
+      Add ACL rules to filter known bad User-Agent strings.
+      Example: acl bad_bot hdr(User-Agent) -i -m sub bot crawler spider
+      http-request deny if bad_bot
+    references:
+      nist:
+        - SC-5
+        - SI-4
+      owasp:
+        - A05:2021 Security Misconfiguration
+      stig:
+        - SRG-APP-000246-WSR-000149
+    check_function: access.check_bot_detection
+
+  - id: HAPR-IPREP-001
+    title: IP Reputation Integration Detected
+    category: access
+    tier: level3
+    severity: medium
+    weight: 4
+    description: >
+      Verify that IP reputation or threat intelligence integration is
+      configured to block known malicious sources.
+    rationale: >
+      IP reputation services (CrowdSec, fail2ban, commercial threat
+      intelligence feeds) provide dynamic blocking of known malicious
+      IP addresses, significantly reducing attack surface from known
+      threat actors.
+    remediation: >
+      Integrate an IP reputation service such as CrowdSec bouncer or
+      configure map-based IP blocklists that are periodically updated.
+      Example: http-request deny if { src -f /etc/haproxy/blocklist.map }
+    references:
+      nist:
+        - SI-4
+        - SC-7(5)
+      owasp:
+        - A05:2021 Security Misconfiguration
+      stig:
+        - SRG-APP-000315-WSR-000004
+    check_function: access.check_ip_reputation_integration
+
+  - id: HAPR-API-001
+    title: API Authentication Enforcement
+    category: access
+    tier: level3
+    severity: high
+    weight: 7
+    description: >
+      Verify that API endpoints enforce authentication by requiring
+      valid credentials before processing requests.
+    rationale: >
+      Unauthenticated API endpoints expose backend services to abuse,
+      data leakage, and unauthorized access. Enforcing authentication
+      at the proxy level ensures no request reaches backends without
+      valid credentials.
+    remediation: >
+      Add authentication requirements for API paths using ACLs and
+      deny rules. Example:
+      acl api_path path_beg /api /v1 /v2
+      acl has_auth req.hdr(Authorization) -m found
+      http-request deny if api_path !has_auth
+    references:
+      nist:
+        - IA-2
+        - AC-3
+        - AC-17
+      owasp:
+        - A07:2021 Identification and Authentication Failures
+        - A01:2021 Broken Access Control
+      stig:
+        - SRG-APP-000219-WSR-000036
+    check_function: access.check_api_authentication
+
+  - id: HAPR-API-002
+    title: Per-API Rate Limiting
+    category: access
+    tier: level3
+    severity: medium
+    weight: 4
+    description: >
+      Verify that API endpoints have dedicated rate limiting to prevent
+      abuse and ensure fair resource allocation.
+    rationale: >
+      API endpoints are common targets for brute-force attacks, credential
+      stuffing, and resource exhaustion. Per-API rate limiting ensures
+      that abuse of one endpoint does not affect others and prevents
+      automated attacks.
+    remediation: >
+      Configure stick-tables and rate limiting specific to API paths.
+      Example:
+      stick-table type ip size 100k expire 30s store http_req_rate(10s)
+      acl api_path path_beg /api
+      http-request track-sc0 src if api_path
+      http-request deny deny_status 429 if api_path { sc_http_req_rate(0) gt 100 }
+    references:
+      nist:
+        - SC-5
+        - SC-5(2)
+      owasp:
+        - A04:2021 Insecure Design
+      stig:
+        - SRG-APP-000246-WSR-000149
+    check_function: access.check_api_rate_limiting
 
   # ---------------------------------------------------------------------------
   # HAPR-HDR: HTTP Security Headers
@@ -875,6 +1161,33 @@ checks:
         - SRG-APP-000516-WSR-000174
     check_function: headers.check_cross_origin_embedder_policy
 
+  - id: HAPR-HDR-009
+    title: Cross-Origin-Resource-Policy Set
+    category: headers
+    tier: level2
+    severity: low
+    weight: 2
+    description: >
+      Verify that the Cross-Origin-Resource-Policy (CORP) header is set to
+      control which origins can embed or load resources from this site.
+    rationale: >
+      The Cross-Origin-Resource-Policy header prevents other origins from
+      reading resources served by this server. Combined with COOP and COEP,
+      it completes cross-origin isolation and mitigates data leakage via
+      cross-origin reads.
+    remediation: >
+      Add a Cross-Origin-Resource-Policy response header. Example:
+      http-response set-header Cross-Origin-Resource-Policy same-origin
+    references:
+      nist:
+        - SC-8
+        - AC-4
+      owasp:
+        - A05:2021 Security Misconfiguration
+      stig:
+        - SRG-APP-000516-WSR-000174
+    check_function: headers.check_cross_origin_resource_policy
+
   # ---------------------------------------------------------------------------
   # HAPR-REQ: Request Handling
   # ---------------------------------------------------------------------------
@@ -1026,6 +1339,61 @@ checks:
         - SRG-APP-000251-WSR-000157
         - SRG-APP-000454-WSR-000170
     check_function: request.check_http_smuggling_prevention
+
+  - id: HAPR-H2-001
+    title: HTTP/2 Stream Limits Configured
+    category: request
+    tier: level3
+    severity: medium
+    weight: 4
+    description: >
+      Verify that HTTP/2 stream limits are configured to prevent resource
+      exhaustion through excessive concurrent streams.
+    rationale: >
+      HTTP/2 multiplexes many streams over a single connection. Without
+      limits on concurrent streams, frame size, or window size, an attacker
+      can exhaust server resources with minimal connections. The Rapid Reset
+      attack (CVE-2023-44487) exploits unlimited stream creation.
+    remediation: >
+      Set HTTP/2 tuning parameters in the global section.
+      Example: tune.h2.max-concurrent-streams 100
+    references:
+      nist:
+        - SC-5
+        - SC-5(2)
+      owasp:
+        - A05:2021 Security Misconfiguration
+      stig:
+        - SRG-APP-000246-WSR-000149
+    check_function: request.check_h2_stream_limits
+
+  - id: HAPR-H2-002
+    title: H2C Smuggling Prevention
+    category: request
+    tier: level3
+    severity: high
+    weight: 7
+    description: >
+      Verify that HTTP/2 cleartext (h2c) upgrades are prevented or
+      restricted to mitigate request smuggling attacks.
+    rationale: >
+      H2C allows HTTP/2 without TLS via the Upgrade header. Attackers
+      can exploit h2c upgrade mechanisms to smuggle requests past
+      security controls. Binding h2 only over TLS or blocking h2c
+      upgrade requests prevents this attack vector.
+    remediation: >
+      Either ensure HTTP/2 is only available over TLS (bind with ssl and
+      alpn h2), or add deny rules for h2c upgrades:
+      http-request deny if { req.hdr(Upgrade) -i h2c }
+    references:
+      nist:
+        - SC-8
+        - SI-10
+      owasp:
+        - A05:2021 Security Misconfiguration
+      stig:
+        - SRG-APP-000251-WSR-000157
+    check_function: request.check_h2c_smuggling_prevention
 
   # ---------------------------------------------------------------------------
   # HAPR-LOG: Logging & Monitoring
@@ -1695,6 +2063,35 @@ checks:
         - SRG-APP-000427-WSR-000186
     check_function: backend.check_backend_ssl_verification
 
+  - id: HAPR-CACHE-001
+    title: Cache Security Controls
+    category: backend
+    tier: level2
+    severity: medium
+    weight: 4
+    description: >
+      Verify that HAProxy cache configuration includes security controls
+      such as size limits, max-age restrictions, and cache-control headers
+      to prevent cache poisoning and data leakage.
+    rationale: >
+      Improperly configured caches can serve stale or poisoned content,
+      leak sensitive data between users, or be used to amplify attacks.
+      Limiting cache size, setting appropriate max-age, and enforcing
+      cache-control headers mitigates these risks.
+    remediation: >
+      Configure cache with security controls. Example:
+      cache my_cache total-max-size 64 max-age 3600
+      Ensure sensitive responses include appropriate Cache-Control headers.
+    references:
+      nist:
+        - SC-8
+        - SI-10
+      owasp:
+        - A05:2021 Security Misconfiguration
+      stig:
+        - SRG-APP-000516-WSR-000174
+    check_function: backend.check_cache_security
+
   # ---------------------------------------------------------------------------
   # HAPR-FRT: Frontend Security
   # ---------------------------------------------------------------------------
@@ -1904,6 +2301,118 @@ checks:
         - SRG-APP-000141-WSR-000076
     check_function: frontend.check_bind_address_restrictions
 
+  - id: HAPR-SPOE-001
+    title: SPOE WAF Filter Declared
+    category: frontend
+    tier: level2
+    severity: medium
+    weight: 4
+    description: >
+      Verify that a Stream Processing Offload Engine (SPOE) WAF filter
+      is declared in frontend sections for web application firewall
+      integration.
+    rationale: >
+      SPOE allows HAProxy to offload request inspection to external
+      agents like ModSecurity or CRS for deep packet inspection. This
+      provides WAF capabilities at the proxy level, required by PCI DSS
+      4.0 Requirement 6.4.2 for public-facing web applications.
+    remediation: >
+      Configure SPOE WAF filter in frontends. Example:
+      filter spoe engine modsecurity config /etc/haproxy/spoe-modsecurity.conf
+    references:
+      nist:
+        - SI-3
+        - SI-4
+      owasp:
+        - A05:2021 Security Misconfiguration
+      stig:
+        - SRG-APP-000251-WSR-000157
+    check_function: frontend.check_spoe_waf_filter
+
+  - id: HAPR-SPOE-002
+    title: SPOE Agent Timeout Configuration
+    category: frontend
+    tier: level2
+    severity: low
+    weight: 2
+    description: >
+      Verify that SPOE agent timeout values are configured to prevent
+      request stalling when the offload agent is unresponsive.
+    rationale: >
+      Without timeouts, a slow or unresponsive SPOE agent can cause
+      requests to hang indefinitely. Configuring processing and hello
+      timeouts ensures graceful degradation when the WAF agent is
+      unavailable.
+    remediation: >
+      Configure SPOE agent timeouts. Ensure the SPOE configuration
+      includes timeout hello and timeout processing directives.
+    references:
+      nist:
+        - SC-5
+        - SC-10
+      owasp:
+        - A05:2021 Security Misconfiguration
+      stig:
+        - SRG-APP-000246-WSR-000149
+    check_function: frontend.check_spoe_agent_timeout
+
+  - id: HAPR-COMP-001
+    title: Compression BREACH Risk Assessment
+    category: frontend
+    tier: level2
+    severity: medium
+    weight: 4
+    description: >
+      Verify that HTTP compression on TLS-enabled frontends does not
+      expose the configuration to BREACH attacks (CVE-2013-3587).
+    rationale: >
+      BREACH exploits HTTP compression on TLS connections to extract
+      secrets from responses. When compression is enabled on SSL
+      frontends, an attacker can progressively guess secret values
+      in compressed responses by observing response size changes.
+    remediation: >
+      Either disable compression on SSL-enabled frontends, or ensure
+      compression is only used on non-sensitive content. Consider
+      using per-response compression controls to exclude sensitive pages.
+    references:
+      nist:
+        - SC-8(1)
+        - SC-13
+      owasp:
+        - A02:2021 Cryptographic Failures
+      stig:
+        - SRG-APP-000439-WSR-000156
+    check_function: frontend.check_compression_breach_risk
+
+  - id: HAPR-PROXY-001
+    title: PROXY Protocol Source Restricted
+    category: frontend
+    tier: level2
+    severity: high
+    weight: 7
+    description: >
+      Verify that PROXY protocol listeners restrict accepted sources
+      to trusted upstream proxies to prevent IP spoofing.
+    rationale: >
+      The PROXY protocol allows upstream proxies to communicate the
+      original client IP. If accept-proxy is enabled without source
+      restrictions, any client can forge the PROXY protocol header and
+      spoof their IP address, bypassing IP-based access controls.
+    remediation: >
+      Restrict PROXY protocol listeners to trusted source IPs using ACLs.
+      Example:
+      acl trusted_proxy src 10.0.0.0/8
+      http-request deny unless trusted_proxy
+    references:
+      nist:
+        - AC-3
+        - SC-7
+      owasp:
+        - A01:2021 Broken Access Control
+      stig:
+        - SRG-APP-000315-WSR-000004
+    check_function: frontend.check_proxy_protocol_restricted
+
   # ---------------------------------------------------------------------------
   # HAPR-GBL: Global & Defaults
   # ---------------------------------------------------------------------------
@@ -2087,6 +2596,88 @@ checks:
       stig:
         - SRG-APP-000516-WSR-000174
     check_function: global_defaults.check_nbproc_not_used
+
+  - id: HAPR-LUA-001
+    title: Lua Memory Limit Set
+    category: global_defaults
+    tier: level2
+    severity: medium
+    weight: 4
+    description: >
+      Verify that Lua script memory limits are configured when Lua
+      scripts are loaded in the HAProxy configuration.
+    rationale: >
+      Lua scripts executing without memory limits can consume unbounded
+      memory, leading to out-of-memory conditions and service disruption.
+      Setting tune.lua.maxmem prevents a single Lua context from
+      exhausting system resources.
+    remediation: >
+      Set tune.lua.maxmem in the global section to limit Lua memory.
+      Example: tune.lua.maxmem 0 (unlimited, default) or
+      tune.lua.maxmem 64 (64 MB limit)
+    references:
+      nist:
+        - SC-5
+        - SC-6
+      owasp:
+        - A05:2021 Security Misconfiguration
+      stig:
+        - SRG-APP-000246-WSR-000149
+    check_function: global_defaults.check_lua_memory_limit
+
+  - id: HAPR-LUA-002
+    title: Lua Forced Yield Configured
+    category: global_defaults
+    tier: level2
+    severity: low
+    weight: 2
+    description: >
+      Verify that Lua forced yield is configured to prevent Lua scripts
+      from monopolizing CPU time in HAProxy's event loop.
+    rationale: >
+      Without forced yield, a long-running Lua script can block the
+      event loop and cause all connections to stall. The tune.lua.forced-yield
+      parameter forces Lua to yield after a specified number of instructions,
+      maintaining responsiveness.
+    remediation: >
+      Set tune.lua.forced-yield in the global section.
+      Example: tune.lua.forced-yield 10000
+    references:
+      nist:
+        - SC-5
+        - SC-6
+      owasp:
+        - A05:2021 Security Misconfiguration
+      stig:
+        - SRG-APP-000246-WSR-000149
+    check_function: global_defaults.check_lua_forced_yield
+
+  - id: HAPR-PEER-001
+    title: Peer Communication Encrypted
+    category: global_defaults
+    tier: level2
+    severity: medium
+    weight: 4
+    description: >
+      Verify that HAProxy peer communication (stick-table replication)
+      uses encrypted connections between nodes.
+    rationale: >
+      HAProxy peers sections replicate stick-table data between cluster
+      nodes. Without encryption, this replication traffic exposes session
+      data, rate limiting counters, and health information to network
+      eavesdroppers.
+    remediation: >
+      Configure SSL for peer communication by adding ssl, crt, and ca-file
+      directives to the peers section server lines.
+    references:
+      nist:
+        - SC-8
+        - SC-8(1)
+      owasp:
+        - A02:2021 Cryptographic Failures
+      stig:
+        - SRG-APP-000439-WSR-000156
+    check_function: global_defaults.check_peer_encryption
 
   # ---------------------------------------------------------------------------
   # HAPR-SCAN: Live TLS Scan
@@ -2278,6 +2869,92 @@ checks:
       stig:
         - SRG-APP-000439-WSR-000156
     check_function: tls_live.check_secure_renegotiation_live
+    requires: scanner
+
+  - id: HAPR-SCAN-007
+    title: Certificate Key Size Adequate
+    category: tls_live
+    tier: level2
+    severity: medium
+    weight: 4
+    description: >
+      Verify that certificate key sizes meet minimum requirements:
+      RSA >= 2048 bits, ECDSA >= 256 bits via live TLS scanning.
+    rationale: >
+      Certificates with inadequate key sizes are vulnerable to
+      brute-force attacks. NIST SP 800-52 Rev. 2 requires RSA keys
+      of at least 2048 bits and ECDSA keys of at least 256 bits for
+      adequate security through 2030.
+    remediation: >
+      Generate certificates with adequate key sizes. For RSA, use at
+      least 2048 bits (4096 preferred). For ECDSA, use P-256 or P-384 curves.
+    references:
+      nist:
+        - SC-12
+        - SC-13
+      owasp:
+        - A02:2021 Cryptographic Failures
+      stig:
+        - SRG-APP-000179-WSR-000110
+    check_function: tls_live.check_certificate_key_size
+    requires: scanner
+
+  - id: HAPR-SCAN-008
+    title: Certificate Expiry Warning
+    category: tls_live
+    tier: level2
+    severity: medium
+    weight: 4
+    description: >
+      Warn if any certificate will expire within 30 days via live TLS
+      scanning, providing early notice for certificate renewal.
+    rationale: >
+      Certificate expiry causes service outages and security warnings
+      for users. A 30-day warning window provides adequate time for
+      certificate renewal, even accounting for procurement and approval
+      processes in enterprise environments.
+    remediation: >
+      Renew certificates before they expire. Implement automated
+      certificate management (e.g., ACME/Let's Encrypt) to prevent
+      expiry-related outages.
+    references:
+      nist:
+        - SC-12
+        - SC-17
+      owasp:
+        - A02:2021 Cryptographic Failures
+      stig:
+        - SRG-APP-000175-WSR-000095
+    check_function: tls_live.check_certificate_expiry_warning
+    requires: scanner
+
+  - id: HAPR-SCAN-009
+    title: Certificate Hostname Match
+    category: tls_live
+    tier: level2
+    severity: high
+    weight: 7
+    description: >
+      Verify that certificate subject or SAN entries match the target
+      hostname via live TLS scanning.
+    rationale: >
+      A certificate that does not match the hostname causes browser
+      trust warnings and may indicate a misconfigured or compromised
+      server. RFC 6125 requires hostname validation via SAN entries
+      (preferred) or the CN in the subject.
+    remediation: >
+      Ensure certificates are issued with correct Subject Alternative
+      Names (SANs) matching all hostnames served. Use wildcard
+      certificates for subdomains where appropriate.
+    references:
+      nist:
+        - SC-8(1)
+        - IA-5(2)
+      owasp:
+        - A02:2021 Cryptographic Failures
+      stig:
+        - SRG-APP-000427-WSR-000186
+    check_function: tls_live.check_certificate_hostname_match
     requires: scanner
 
   # ---------------------------------------------------------------------------

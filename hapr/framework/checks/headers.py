@@ -421,3 +421,35 @@ def check_cross_origin_embedder_policy(config: HAProxyConfig) -> Finding:
         ),
         evidence="No http-response set-header/add-header for Cross-Origin-Embedder-Policy found.",
     )
+
+
+def check_cross_origin_resource_policy(config: HAProxyConfig) -> Finding:
+    """HAPR-HDR-009: Check for Cross-Origin-Resource-Policy (CORP) header.
+
+    The Cross-Origin-Resource-Policy header indicates whether a resource
+    can be shared cross-origin.  Setting it to ``same-origin`` or
+    ``same-site`` prevents other origins from loading the resource,
+    mitigating side-channel attacks and data leaks.
+
+    Returns PASS if the header is set, FAIL otherwise.
+    """
+    directive = _find_response_header(config, "Cross-Origin-Resource-Policy")
+
+    if directive:
+        return Finding(
+            check_id="HAPR-HDR-009",
+            status=Status.PASS,
+            message="Cross-Origin-Resource-Policy header is configured.",
+            evidence=f"http-response {directive.args} (line {directive.line_number})",
+        )
+
+    return Finding(
+        check_id="HAPR-HDR-009",
+        status=Status.FAIL,
+        message=(
+            "Cross-Origin-Resource-Policy header is not set. Add "
+            "'http-response set-header Cross-Origin-Resource-Policy same-origin' "
+            "to control cross-origin resource sharing and mitigate side-channel attacks."
+        ),
+        evidence="No http-response set-header/add-header for Cross-Origin-Resource-Policy found.",
+    )

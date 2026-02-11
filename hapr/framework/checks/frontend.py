@@ -537,3 +537,337 @@ def check_bind_address_restrictions(config: HAProxyConfig) -> Finding:
         ),
         evidence=f"Wildcard binds: {', '.join(wildcard_binds)}",
     )
+
+
+def check_spoe_waf_filter(config: HAProxyConfig) -> Finding:
+    """HAPR-SPOE-001: Check if SPOE WAF filter is declared in frontends.
+
+    The Stream Processing Offload Engine (SPOE) allows HAProxy to
+    communicate with external agents (e.g. ModSecurity) for request
+    inspection.  A ``filter spoe`` directive in a frontend or listen
+    section indicates that SPOE-based WAF filtering is active.
+
+    Returns PASS if a ``filter spoe`` directive is found in any
+    frontend or listen section, FAIL if not.
+    """
+    evidence_lines: list[str] = []
+
+    for section in config.all_frontends_and_listens:
+        section_label = getattr(section, "name", "unnamed") or "unnamed"
+
+        for directive in section.directives:
+            keyword = directive.keyword.lower()
+            args_lower = directive.args.lower()
+
+            # Look for 'filter spoe' directives
+            if keyword == "filter" and "spoe" in args_lower:
+                evidence_lines.append(
+                    f"[{section_label}] filter {directive.args} "
+                    f"(line {directive.line_number})"
+                )
+
+            # Also look for spoe-agent or spoe-message references
+            if keyword in ("spoe-agent", "spoe-message"):
+                evidence_lines.append(
+                    f"[{section_label}] {directive.keyword} {directive.args} "
+                    f"(line {directive.line_number})"
+                )
+
+    if evidence_lines:
+        return Finding(
+            check_id="HAPR-SPOE-001",
+            status=Status.PASS,
+            message="SPOE WAF filter is declared in the configuration.",
+            evidence="\n".join(evidence_lines),
+        )
+
+    return Finding(
+        check_id="HAPR-SPOE-001",
+        status=Status.FAIL,
+        message=(
+            "No SPOE WAF filter found in frontend or listen sections. "
+            "Consider adding 'filter spoe engine <name> config <path>' "
+            "to integrate external WAF processing via SPOE."
+        ),
+        evidence=(
+            "Searched all frontend and listen sections for 'filter spoe', "
+            "'spoe-agent', and 'spoe-message' directives; none found."
+        ),
+    )
+
+
+def check_spoe_agent_timeout(config: HAProxyConfig) -> Finding:
+    """HAPR-SPOE-002: Check that SPOE agent has timeout configuration.
+
+    When SPOE is in use, the agent communication should have explicit
+    timeouts (``timeout hello``, ``timeout idle``, ``timeout processing``)
+    to prevent hanging connections if the external agent becomes
+    unresponsive.  This check looks for SPOE filter references and
+    associated timeout directives in the same section.
+
+    Returns PASS if SPOE is present with timeouts configured,
+    FAIL if SPOE is present without timeouts, N/A if SPOE is not used.
+    """
+    spoe_sections: list[str] = []
+    timeout_evidence: list[str] = []
+
+    for section in config.all_frontends_and_listens:
+        section_label = getattr(section, "name", "unnamed") or "unnamed"
+
+        has_spoe = False
+        has_timeout = False
+
+        for directive in section.directives:
+            keyword = directive.keyword.lower()
+            args_lower = directive.args.lower()
+
+            # Detect SPOE filter
+            if keyword == "filter" and "spoe" in args_lower:
+                has_spoe = True
+
+            # Detect timeout directives related to SPOE processing
+            if keyword == "timeout" and any(
+                t in args_lower
+                for t in ("hello", "idle", "processing")
+            ):
+                has_timeout = True
+                timeout_evidence.append(
+                    f"[{section_label}] timeout {directive.args} "
+                    f"(line {directive.line_number})"
+                )
+
+        if has_spoe:
+            spoe_sections.append(section_label)
+
+    if not spoe_sections:
+        return Finding(
+            check_id="HAPR-SPOE-002",
+            status=Status.NOT_APPLICABLE,
+            message="No SPOE filter found; SPOE timeout check not applicable.",
+            evidence="No 'filter spoe' directives found in any frontend or listen section.",
+        )
+
+    if timeout_evidence:
+        return Finding(
+            check_id="HAPR-SPOE-002",
+            status=Status.PASS,
+            message="SPOE agent timeouts are configured.",
+            evidence="\n".join(timeout_evidence),
+        )
+
+    return Finding(
+        check_id="HAPR-SPOE-002",
+        status=Status.FAIL,
+        message=(
+            "SPOE filter is present but no associated timeout directives "
+            "(timeout hello, timeout idle, timeout processing) were found. "
+            "Add timeouts to prevent hanging connections if the SPOE agent "
+            "becomes unresponsive."
+        ),
+        evidence=f"SPOE sections without timeouts: {', '.join(spoe_sections)}",
+    )
+
+
+def check_compression_breach_risk(config: HAProxyConfig) -> Finding:
+    """HAPR-COMP-001: Check for compression that could expose BREACH vulnerability.
+
+    HTTP compression on TLS-protected responses can expose the application
+    to the BREACH attack (CVE-2013-3587), which allows an attacker to
+    extract secrets from compressed HTTPS responses.  This check looks for
+    ``compression algo`` directives on SSL-enabled sections.
+
+    Returns PASS if no compression is found, PARTIAL if compression is
+    enabled on SSL-enabled sections (BREACH risk), PASS if compression is
+    only on non-SSL sections.
+    """
+    compression_sections: list[str] = []
+    ssl_compression_sections: list[str] = []
+    non_ssl_compression_sections: list[str] = []
+    evidence_lines: list[str] = []
+
+    # Check frontends and listens
+    for section in config.all_frontends_and_listens:
+        section_label = getattr(section, "name", "unnamed") or "unnamed"
+
+        has_compression = False
+        for directive in section.directives:
+            keyword = directive.keyword.lower()
+            if keyword == "compression":
+                has_compression = True
+                evidence_lines.append(
+                    f"[{section_label}] compression {directive.args} "
+                    f"(line {directive.line_number})"
+                )
+
+        if has_compression:
+            compression_sections.append(section_label)
+            # Check if this section has SSL bind lines
+            has_ssl = any(bind.ssl for bind in section.binds)
+            if has_ssl:
+                ssl_compression_sections.append(section_label)
+            else:
+                non_ssl_compression_sections.append(section_label)
+
+    # Check defaults and backends for compression directives
+    for section in list(config.defaults) + list(config.backends):
+        section_label = getattr(section, "name", "unnamed") or "unnamed"
+
+        for directive in section.directives:
+            keyword = directive.keyword.lower()
+            if keyword == "compression":
+                compression_sections.append(section_label)
+                evidence_lines.append(
+                    f"[{section_label}] compression {directive.args} "
+                    f"(line {directive.line_number})"
+                )
+                # Defaults and backends don't have binds, so we can't
+                # determine SSL status — treat as uncertain
+                ssl_compression_sections.append(section_label)
+
+    if not compression_sections:
+        return Finding(
+            check_id="HAPR-COMP-001",
+            status=Status.PASS,
+            message="No HTTP compression is configured; not vulnerable to BREACH.",
+            evidence="No 'compression algo' or 'compression type' directives found.",
+        )
+
+    if ssl_compression_sections:
+        return Finding(
+            check_id="HAPR-COMP-001",
+            status=Status.PARTIAL,
+            message=(
+                "HTTP compression is enabled on SSL-protected sections, which "
+                "may expose the application to the BREACH attack (CVE-2013-3587). "
+                "Consider disabling compression on HTTPS responses or using "
+                "per-request CSRF tokens to mitigate the risk."
+            ),
+            evidence="\n".join(evidence_lines),
+        )
+
+    return Finding(
+        check_id="HAPR-COMP-001",
+        status=Status.PASS,
+        message=(
+            "HTTP compression is enabled only on non-SSL sections; "
+            "BREACH attack risk is mitigated."
+        ),
+        evidence="\n".join(evidence_lines),
+    )
+
+
+def check_proxy_protocol_restricted(config: HAProxyConfig) -> Finding:
+    """HAPR-PROXY-001: Check that PROXY protocol is restricted to trusted sources.
+
+    The PROXY protocol (``accept-proxy`` or ``accept-netscaler-cip`` on a
+    bind line) allows upstream proxies to pass the real client IP.  If
+    not restricted to trusted sources, an attacker can forge client
+    addresses.  This check verifies that sections using PROXY protocol
+    also have source-based ACLs (``src``) for access control.
+
+    Returns PASS if proxy protocol binds have source restrictions, PARTIAL
+    if proxy protocol is used without visible source restrictions, FAIL if
+    proxy protocol is used with no ACLs at all, N/A if no proxy protocol
+    binds are found.
+    """
+    proxy_protocol_sections: list[str] = []
+    restricted_sections: list[str] = []
+    unrestricted_sections: list[str] = []
+    no_acl_sections: list[str] = []
+    evidence_lines: list[str] = []
+
+    for section in config.all_frontends_and_listens:
+        section_label = getattr(section, "name", "unnamed") or "unnamed"
+
+        # Check if any bind line uses PROXY protocol
+        has_proxy_protocol = False
+        for bind in section.binds:
+            raw_lower = bind.raw.lower()
+            if "accept-proxy" in raw_lower or "accept-netscaler-cip" in raw_lower:
+                has_proxy_protocol = True
+                evidence_lines.append(
+                    f"[{section_label}] bind {bind.raw} "
+                    f"(line {bind.line_number})"
+                )
+
+        if not has_proxy_protocol:
+            continue
+
+        proxy_protocol_sections.append(section_label)
+
+        # Check for source-based ACLs and deny/allow rules
+        has_acls = False
+        has_src_restriction = False
+
+        for directive in section.directives:
+            keyword = directive.keyword.lower()
+            args_lower = directive.args.lower()
+
+            # Check for ACLs that reference 'src'
+            if keyword == "acl" and "src" in args_lower:
+                has_acls = True
+                has_src_restriction = True
+
+            # Check for tcp-request or http-request with src
+            if keyword in ("tcp-request", "http-request") and "src" in args_lower:
+                has_acls = True
+                has_src_restriction = True
+
+            # Any ACL at all
+            if keyword == "acl":
+                has_acls = True
+
+        if has_src_restriction:
+            restricted_sections.append(section_label)
+        elif has_acls:
+            unrestricted_sections.append(section_label)
+        else:
+            no_acl_sections.append(section_label)
+
+    if not proxy_protocol_sections:
+        return Finding(
+            check_id="HAPR-PROXY-001",
+            status=Status.NOT_APPLICABLE,
+            message="No PROXY protocol binds found; check not applicable.",
+            evidence="No bind lines with 'accept-proxy' or 'accept-netscaler-cip' found.",
+        )
+
+    if restricted_sections and not unrestricted_sections and not no_acl_sections:
+        return Finding(
+            check_id="HAPR-PROXY-001",
+            status=Status.PASS,
+            message=(
+                "PROXY protocol binds have source-based restrictions configured."
+            ),
+            evidence="\n".join(evidence_lines),
+        )
+
+    if no_acl_sections:
+        return Finding(
+            check_id="HAPR-PROXY-001",
+            status=Status.FAIL,
+            message=(
+                "PROXY protocol is enabled but no ACLs are configured in some "
+                "sections. An attacker could forge client IP addresses. "
+                "Add source-based ACLs to restrict PROXY protocol to trusted "
+                "upstream proxies only."
+            ),
+            evidence=(
+                "\n".join(evidence_lines)
+                + f"\nSections with no ACLs: {', '.join(no_acl_sections)}"
+            ),
+        )
+
+    return Finding(
+        check_id="HAPR-PROXY-001",
+        status=Status.PARTIAL,
+        message=(
+            "PROXY protocol is enabled but source-based restrictions (src ACLs) "
+            "are not visible in some sections. Ensure that only trusted upstream "
+            "proxies can send PROXY protocol headers."
+        ),
+        evidence=(
+            "\n".join(evidence_lines)
+            + f"\nSections without src restrictions: {', '.join(unrestricted_sections)}"
+        ),
+    )
