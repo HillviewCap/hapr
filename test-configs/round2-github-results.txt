@@ -1,0 +1,998 @@
+
+==================================================================
+Config: akhilraj-haproxy-backend.cfg
+==================================================================
+Parsing config: test-configs/github/akhilraj-haproxy-backend.cfg
+  Found: 1 frontend(s), 5 backend(s), 1 listen section(s), 2 bind(s), 5 
+server(s)
+Running security audit...
+╭────────────────── HAPR Security Score ───────────────────╮
+│ F  40.7%                                                 │
+│ Checks: 56 total | 16 passed | 33 failed | 6 partial     │
+╰──────────────────────────────────────────────────────────╯
+
+Category Scores:
+  Request Handling               ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/4F/0W/0N)
+  Frontend Security              ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/6F/0W/0N)
+  HTTP Security Headers          ██░░░░░░░░░░░░░░░░░░  11.1% (1P/5F/0W/0N)
+  Backend Security               ████░░░░░░░░░░░░░░░░  20.6% (0P/3F/1W/1N)
+  Information Disclosure         ████░░░░░░░░░░░░░░░░  23.5% (1P/3F/0W/0N)
+  Access Control                 █████░░░░░░░░░░░░░░░  25.9% (1P/3F/1W/0N)
+  TLS/SSL Configuration          ██████░░░░░░░░░░░░░░  32.7% (2P/4F/1W/0N)
+  Global & Defaults              ███████████░░░░░░░░░  58.3% (2P/3F/0W/0N)
+  Logging & Monitoring           ███████████████░░░░░  77.1% (3P/0F/2W/0N)
+  Timeout Configuration          ███████████████░░░░░  79.3% (3P/1F/1W/0N)
+  Process Security               ██████████████████░░  91.3% (3P/1F/0W/0N)
+
+Findings (39):
+┏━━━━━━━━━━━━┳━━━━┳━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ ID         ┃ S… ┃ S… ┃ Message                                               ┃
+┡━━━━━━━━━━━━╇━━━━╇━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ HAPR-TLS-… │ c… │ f… │ No minimum TLS version enforcement found (ssl-min-ver │
+│            │    │    │ not set).                                             │
+│ HAPR-TLS-… │ c… │ f… │ Weak cipher suites detected in TLS configuration.     │
+│ HAPR-TLS-… │ h… │ f… │ No Strict-Transport-Security (HSTS) header found in   │
+│            │    │    │ any frontend, listen, or def                          │
+│ HAPR-ACL-… │ h… │ f… │ No restrictions on common admin paths detected. Paths │
+│            │    │    │ like /admin, /manager, /wp                            │
+│ HAPR-ACL-… │ h… │ f… │ No rate limiting detected. Consider using             │
+│            │    │    │ stick-tables with http-request track-s                │
+│ HAPR-ACL-… │ h… │ p… │ Stats endpoint is secured with authentication but the │
+│            │    │    │ password is weak. Use a st                            │
+│ HAPR-LOG-… │ h… │ p… │ Stats endpoint has authentication but is missing      │
+│            │    │    │ additional protections: stats h                       │
+│ HAPR-INF-… │ h… │ f… │ No directive found to remove or overwrite the Server  │
+│            │    │    │ response header. Backend so                           │
+│ HAPR-BKD-… │ h… │ p… │ Some backends/listens are missing health checks.      │
+│ HAPR-FRT-… │ h… │ f… │ HTTP frontends found without HTTP-to-HTTPS redirect.  │
+│            │    │    │ Add 'redirect scheme https                            │
+│ HAPR-TLS-… │ m… │ p… │ TLS 1.2 ciphers are configured                        │
+│            │    │    │ (ssl-default-bind-ciphers) but TLS 1.3 ciphersuit     │
+│ HAPR-TLS-… │ m… │ f… │ tune.ssl.default-dh-param is not set in the global    │
+│            │    │    │ section.                                              │
+│ HAPR-ACL-… │ m… │ f… │ No stick-table directives found. Stick-tables are     │
+│            │    │    │ required for connection tracki                        │
+│ HAPR-HDR-… │ m… │ f… │ X-Frame-Options header is not set. Add 'http-response │
+│            │    │    │ set-header X-Frame-Options                            │
+│ HAPR-HDR-… │ m… │ f… │ Content-Security-Policy header is not set. A CSP      │
+│            │    │    │ header helps prevent XSS and da                       │
+│ HAPR-HDR-… │ m… │ f… │ X-Content-Type-Options header is not set. Add         │
+│            │    │    │ 'http-response set-header X-Conten                    │
+│ HAPR-REQ-… │ m… │ f… │ No request body size limits found. Consider adding    │
+│            │    │    │ 'http-request deny if { req.b                         │
+│ HAPR-REQ-… │ m… │ f… │ No HTTP method filtering found. Consider restricting  │
+│            │    │    │ allowed methods with rules                            │
+│ HAPR-LOG-… │ m… │ p… │ option httplog is configured but a custom log-format  │
+│            │    │    │ string would provide richer                           │
+│ HAPR-INF-… │ m… │ f… │ No directives found to remove version-revealing       │
+│            │    │    │ response headers (X-Powered-By,                       │
+│ HAPR-TMO-… │ m… │ f… │ No 'timeout http-request' directive found. Without    │
+│            │    │    │ this timeout, the server is v                         │
+│ HAPR-TMO-… │ m… │ p… │ Timeout values partially acceptable: 1 timeout(s)     │
+│            │    │    │ missing (http-request).                               │
+│ HAPR-BKD-… │ m… │ f… │ No connection limits found on backend server lines or │
+│            │    │    │ sections. Add 'maxconn' to                            │
+│ HAPR-BKD-… │ m… │ f… │ No backend servers use SSL/TLS. Traffic between       │
+│            │    │    │ HAProxy and backends is unencryp                      │
+│ HAPR-FRT-… │ m… │ f… │ No connection rate limits found on frontends. Add     │
+│            │    │    │ 'rate-limit sessions' or 'maxc                        │
+│ HAPR-FRT-… │ m… │ f… │ maxconn is not set in the global section or any       │
+│            │    │    │ frontend. Set 'maxconn' to limit                      │
+│ HAPR-FRT-… │ m… │ f… │ No WAF integration detected. Consider integrating a   │
+│            │    │    │ Web Application Firewall (e.                          │
+│ HAPR-FRT-… │ m… │ f… │ No SQL injection protection rules found. Consider     │
+│            │    │    │ adding 'http-request deny' rul                        │
+│ HAPR-FRT-… │ m… │ f… │ No XSS protection rules found. Consider adding        │
+│            │    │    │ 'http-request deny' rules that ma                     │
+│ HAPR-GBL-… │ m… │ f… │ No maxconn set in global section — HAProxy will use   │
+│            │    │    │ default                                               │
+│ HAPR-GBL-… │ m… │ f… │ tune.ssl.default-dh-param is not set — default may be │
+│            │    │    │ weak                                                  │
+│ HAPR-PROC… │ l… │ f… │ ulimit-n is not set in the global section.            │
+│ HAPR-HDR-… │ l… │ f… │ Referrer-Policy header is not set. Add 'http-response │
+│            │    │    │ set-header Referrer-Policy                            │
+│ HAPR-HDR-… │ l… │ f… │ Permissions-Policy header is not set. Add             │
+│            │    │    │ 'http-response set-header Permissions-                │
+│ HAPR-REQ-… │ l… │ f… │ No URL length restrictions found. Consider adding     │
+│            │    │    │ 'http-request deny if { url_le                        │
+│ HAPR-REQ-… │ l… │ f… │ No request header size tuning found in the global     │
+│            │    │    │ section. Consider setting 'tun                        │
+│ HAPR-INF-… │ l… │ f… │ Stats page is enabled in listen 'webui' without       │
+│            │    │    │ 'stats hide-version'. The HAProx                      │
+│ HAPR-BKD-… │ l… │ f… │ Neither 'retries' nor 'option redispatch' is          │
+│            │    │    │ configured. Add both to defaults or                   │
+│ HAPR-GBL-… │ l… │ f… │ No DNS resolvers configured — server addresses are    │
+│            │    │    │ resolved only at startup                              │
+└────────────┴────┴────┴───────────────────────────────────────────────────────┘
+
+
+==================================================================
+Config: bbossgroups-tcp.cfg
+==================================================================
+Parsing config: test-configs/github/bbossgroups-tcp.cfg
+  Found: 1 frontend(s), 1 backend(s), 1 listen section(s), 1 bind(s), 2 
+server(s)
+Running security audit...
+╭────────────────── HAPR Security Score ───────────────────╮
+│ F  35.9%                                                 │
+│ Checks: 56 total | 17 passed | 35 failed | 2 partial     │
+╰──────────────────────────────────────────────────────────╯
+
+Category Scores:
+  Request Handling               ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/4F/0W/0N)
+  HTTP Security Headers          ██░░░░░░░░░░░░░░░░░░  11.1% (1P/5F/0W/0N)
+  Information Disclosure         ██░░░░░░░░░░░░░░░░░░  11.8% (1P/3F/0W/0N)
+  Access Control                 ██░░░░░░░░░░░░░░░░░░  12.1% (0P/4F/1W/0N)
+  Frontend Security              ████░░░░░░░░░░░░░░░░  20.0% (1P/4F/0W/1N)
+  TLS/SSL Configuration          ████░░░░░░░░░░░░░░░░  20.4% (1P/6F/0W/0N)
+  Process Security               ██████░░░░░░░░░░░░░░  30.4% (1P/3F/0W/0N)
+  Backend Security               ██████░░░░░░░░░░░░░░  32.4% (1P/2F/1W/1N)
+  Global & Defaults              █████████░░░░░░░░░░░  45.8% (2P/3F/0W/0N)
+  Logging & Monitoring           ████████████████░░░░  83.3% (4P/1F/0W/0N)
+  Timeout Configuration          ████████████████████ 100.0% (5P/0F/0W/0N)
+
+Findings (37):
+┏━━━━━━━━━━━━┳━━━━┳━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ ID         ┃ S… ┃ S… ┃ Message                                               ┃
+┡━━━━━━━━━━━━╇━━━━╇━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ HAPR-PROC… │ c… │ f… │ No 'user' directive found in the global section.      │
+│ HAPR-TLS-… │ c… │ f… │ No minimum TLS version enforcement found (ssl-min-ver │
+│            │    │    │ not set).                                             │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-options directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-ciphers directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ No Strict-Transport-Security (HSTS) header found in   │
+│            │    │    │ any frontend, listen, or def                          │
+│ HAPR-ACL-… │ h… │ f… │ No restrictions on common admin paths detected. Paths │
+│            │    │    │ like /admin, /manager, /wp                            │
+│ HAPR-ACL-… │ h… │ f… │ No rate limiting detected. Consider using             │
+│            │    │    │ stick-tables with http-request track-s                │
+│ HAPR-ACL-… │ h… │ p… │ Stats endpoint is secured with authentication but the │
+│            │    │    │ password is weak. Use a st                            │
+│ HAPR-INF-… │ h… │ f… │ No directive found to remove or overwrite the Server  │
+│            │    │    │ response header. Backend so                           │
+│ HAPR-BKD-… │ h… │ p… │ Some backends/listens are missing health checks.      │
+│ HAPR-GBL-… │ h… │ f… │ Stats socket permissions are not restrictive enough   │
+│ HAPR-PROC… │ m… │ f… │ group directive is missing from the global section.   │
+│ HAPR-TLS-… │ m… │ f… │ Neither ssl-default-bind-ciphersuites nor             │
+│            │    │    │ ssl-default-bind-ciphers is configured                │
+│ HAPR-TLS-… │ m… │ f… │ tune.ssl.default-dh-param is not set in the global    │
+│            │    │    │ section.                                              │
+│ HAPR-ACL-… │ m… │ f… │ No ACL directives found in any frontend or listen     │
+│            │    │    │ section.                                              │
+│ HAPR-ACL-… │ m… │ f… │ No stick-table directives found. Stick-tables are     │
+│            │    │    │ required for connection tracki                        │
+│ HAPR-HDR-… │ m… │ f… │ X-Frame-Options header is not set. Add 'http-response │
+│            │    │    │ set-header X-Frame-Options                            │
+│ HAPR-HDR-… │ m… │ f… │ Content-Security-Policy header is not set. A CSP      │
+│            │    │    │ header helps prevent XSS and da                       │
+│ HAPR-HDR-… │ m… │ f… │ X-Content-Type-Options header is not set. Add         │
+│            │    │    │ 'http-response set-header X-Conten                    │
+│ HAPR-REQ-… │ m… │ f… │ No request body size limits found. Consider adding    │
+│            │    │    │ 'http-request deny if { req.b                         │
+│ HAPR-REQ-… │ m… │ f… │ No HTTP method filtering found. Consider restricting  │
+│            │    │    │ allowed methods with rules                            │
+│ HAPR-LOG-… │ m… │ f… │ No detailed log format found. The default log format  │
+│            │    │    │ is minimal and insufficient                           │
+│ HAPR-INF-… │ m… │ f… │ No custom error pages configured. Default HAProxy     │
+│            │    │    │ error pages expose software na                        │
+│ HAPR-INF-… │ m… │ f… │ No directives found to remove version-revealing       │
+│            │    │    │ response headers (X-Powered-By,                       │
+│ HAPR-BKD-… │ m… │ f… │ No connection limits found on backend server lines or │
+│            │    │    │ sections. Add 'maxconn' to                            │
+│ HAPR-BKD-… │ m… │ f… │ No backend servers use SSL/TLS. Traffic between       │
+│            │    │    │ HAProxy and backends is unencryp                      │
+│ HAPR-FRT-… │ m… │ f… │ No connection rate limits found on frontends. Add     │
+│            │    │    │ 'rate-limit sessions' or 'maxc                        │
+│ HAPR-FRT-… │ m… │ f… │ No WAF integration detected. Consider integrating a   │
+│            │    │    │ Web Application Firewall (e.                          │
+│ HAPR-FRT-… │ m… │ f… │ No SQL injection protection rules found. Consider     │
+│            │    │    │ adding 'http-request deny' rul                        │
+│ HAPR-FRT-… │ m… │ f… │ No XSS protection rules found. Consider adding        │
+│            │    │    │ 'http-request deny' rules that ma                     │
+│ HAPR-GBL-… │ m… │ f… │ tune.ssl.default-dh-param is not set — default may be │
+│            │    │    │ weak                                                  │
+│ HAPR-PROC… │ l… │ f… │ ulimit-n is not set in the global section.            │
+│ HAPR-HDR-… │ l… │ f… │ Referrer-Policy header is not set. Add 'http-response │
+│            │    │    │ set-header Referrer-Policy                            │
+│ HAPR-HDR-… │ l… │ f… │ Permissions-Policy header is not set. Add             │
+│            │    │    │ 'http-response set-header Permissions-                │
+│ HAPR-REQ-… │ l… │ f… │ No URL length restrictions found. Consider adding     │
+│            │    │    │ 'http-request deny if { url_le                        │
+│ HAPR-REQ-… │ l… │ f… │ No request header size tuning found in the global     │
+│            │    │    │ section. Consider setting 'tun                        │
+│ HAPR-GBL-… │ l… │ f… │ No DNS resolvers configured — server addresses are    │
+│            │    │    │ resolved only at startup                              │
+└────────────┴────┴────┴───────────────────────────────────────────────────────┘
+
+
+==================================================================
+Config: haproxy-acme-validation.cfg
+==================================================================
+Parsing config: test-configs/github/haproxy-acme-validation.cfg
+  Found: 2 frontend(s), 1 backend(s), 0 listen section(s), 2 bind(s), 1 
+server(s)
+Running security audit...
+╭────────────────── HAPR Security Score ───────────────────╮
+│ F  37.4%                                                 │
+│ Checks: 56 total | 16 passed | 36 failed | 2 partial     │
+╰──────────────────────────────────────────────────────────╯
+
+Category Scores:
+  Request Handling               ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/4F/0W/0N)
+  Backend Security               ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/4F/0W/1N)
+  Frontend Security              ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/6F/0W/0N)
+  HTTP Security Headers          ██░░░░░░░░░░░░░░░░░░  11.1% (1P/5F/0W/0N)
+  Information Disclosure         ██░░░░░░░░░░░░░░░░░░  11.8% (1P/3F/0W/0N)
+  TLS/SSL Configuration          ████░░░░░░░░░░░░░░░░  20.4% (1P/6F/0W/0N)
+  Access Control                 ███████░░░░░░░░░░░░░  37.9% (2P/3F/0W/0N)
+  Global & Defaults              ████████░░░░░░░░░░░░  41.2% (1P/3F/0W/1N)
+  Timeout Configuration          ███████████████░░░░░  79.3% (3P/1F/1W/0N)
+  Process Security               ██████████████████░░  91.3% (3P/1F/0W/0N)
+  Logging & Monitoring           ██████████████████░░  91.7% (4P/0F/1W/0N)
+
+Findings (38):
+┏━━━━━━━━━━━━┳━━━━┳━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ ID         ┃ S… ┃ S… ┃ Message                                               ┃
+┡━━━━━━━━━━━━╇━━━━╇━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ HAPR-TLS-… │ c… │ f… │ No minimum TLS version enforcement found (ssl-min-ver │
+│            │    │    │ not set).                                             │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-options directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-ciphers directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ No Strict-Transport-Security (HSTS) header found in   │
+│            │    │    │ any frontend, listen, or def                          │
+│ HAPR-ACL-… │ h… │ f… │ No restrictions on common admin paths detected. Paths │
+│            │    │    │ like /admin, /manager, /wp                            │
+│ HAPR-ACL-… │ h… │ f… │ No rate limiting detected. Consider using             │
+│            │    │    │ stick-tables with http-request track-s                │
+│ HAPR-INF-… │ h… │ f… │ No directive found to remove or overwrite the Server  │
+│            │    │    │ response header. Backend so                           │
+│ HAPR-BKD-… │ h… │ f… │ No health checks configured on any backend or listen  │
+│            │    │    │ section. Add 'option httpch                           │
+│ HAPR-FRT-… │ h… │ f… │ HTTP frontends found without HTTP-to-HTTPS redirect.  │
+│            │    │    │ Add 'redirect scheme https                            │
+│ HAPR-TLS-… │ m… │ f… │ Neither ssl-default-bind-ciphersuites nor             │
+│            │    │    │ ssl-default-bind-ciphers is configured                │
+│ HAPR-TLS-… │ m… │ f… │ tune.ssl.default-dh-param is not set in the global    │
+│            │    │    │ section.                                              │
+│ HAPR-ACL-… │ m… │ f… │ No stick-table directives found. Stick-tables are     │
+│            │    │    │ required for connection tracki                        │
+│ HAPR-HDR-… │ m… │ f… │ X-Frame-Options header is not set. Add 'http-response │
+│            │    │    │ set-header X-Frame-Options                            │
+│ HAPR-HDR-… │ m… │ f… │ Content-Security-Policy header is not set. A CSP      │
+│            │    │    │ header helps prevent XSS and da                       │
+│ HAPR-HDR-… │ m… │ f… │ X-Content-Type-Options header is not set. Add         │
+│            │    │    │ 'http-response set-header X-Conten                    │
+│ HAPR-REQ-… │ m… │ f… │ No request body size limits found. Consider adding    │
+│            │    │    │ 'http-request deny if { req.b                         │
+│ HAPR-REQ-… │ m… │ f… │ No HTTP method filtering found. Consider restricting  │
+│            │    │    │ allowed methods with rules                            │
+│ HAPR-LOG-… │ m… │ p… │ option httplog is configured but a custom log-format  │
+│            │    │    │ string would provide richer                           │
+│ HAPR-INF-… │ m… │ f… │ No custom error pages configured. Default HAProxy     │
+│            │    │    │ error pages expose software na                        │
+│ HAPR-INF-… │ m… │ f… │ No directives found to remove version-revealing       │
+│            │    │    │ response headers (X-Powered-By,                       │
+│ HAPR-TMO-… │ m… │ f… │ No 'timeout http-request' directive found. Without    │
+│            │    │    │ this timeout, the server is v                         │
+│ HAPR-TMO-… │ m… │ p… │ Timeout values partially acceptable: 1 timeout(s)     │
+│            │    │    │ missing (http-request).                               │
+│ HAPR-BKD-… │ m… │ f… │ No connection limits found on backend server lines or │
+│            │    │    │ sections. Add 'maxconn' to                            │
+│ HAPR-BKD-… │ m… │ f… │ No backend servers use SSL/TLS. Traffic between       │
+│            │    │    │ HAProxy and backends is unencryp                      │
+│ HAPR-FRT-… │ m… │ f… │ No connection rate limits found on frontends. Add     │
+│            │    │    │ 'rate-limit sessions' or 'maxc                        │
+│ HAPR-FRT-… │ m… │ f… │ maxconn is not set in the global section or any       │
+│            │    │    │ frontend. Set 'maxconn' to limit                      │
+│ HAPR-FRT-… │ m… │ f… │ No WAF integration detected. Consider integrating a   │
+│            │    │    │ Web Application Firewall (e.                          │
+│ HAPR-FRT-… │ m… │ f… │ No SQL injection protection rules found. Consider     │
+│            │    │    │ adding 'http-request deny' rul                        │
+│ HAPR-FRT-… │ m… │ f… │ No XSS protection rules found. Consider adding        │
+│            │    │    │ 'http-request deny' rules that ma                     │
+│ HAPR-GBL-… │ m… │ f… │ No maxconn set in global section — HAProxy will use   │
+│            │    │    │ default                                               │
+│ HAPR-GBL-… │ m… │ f… │ tune.ssl.default-dh-param is not set — default may be │
+│            │    │    │ weak                                                  │
+│ HAPR-PROC… │ l… │ f… │ ulimit-n is not set in the global section.            │
+│ HAPR-HDR-… │ l… │ f… │ Referrer-Policy header is not set. Add 'http-response │
+│            │    │    │ set-header Referrer-Policy                            │
+│ HAPR-HDR-… │ l… │ f… │ Permissions-Policy header is not set. Add             │
+│            │    │    │ 'http-response set-header Permissions-                │
+│ HAPR-REQ-… │ l… │ f… │ No URL length restrictions found. Consider adding     │
+│            │    │    │ 'http-request deny if { url_le                        │
+│ HAPR-REQ-… │ l… │ f… │ No request header size tuning found in the global     │
+│            │    │    │ section. Consider setting 'tun                        │
+│ HAPR-BKD-… │ l… │ f… │ Neither 'retries' nor 'option redispatch' is          │
+│            │    │    │ configured. Add both to defaults or                   │
+│ HAPR-GBL-… │ l… │ f… │ No DNS resolvers configured — server addresses are    │
+│            │    │    │ resolved only at startup                              │
+└────────────┴────┴────┴───────────────────────────────────────────────────────┘
+
+
+==================================================================
+Config: jenkins-ha.cfg
+==================================================================
+Parsing config: test-configs/github/jenkins-ha.cfg
+  Found: 2 frontend(s), 2 backend(s), 0 listen section(s), 2 bind(s), 4 
+server(s)
+Running security audit...
+╭────────────────── HAPR Security Score ───────────────────╮
+│ F  42.4%                                                 │
+│ Checks: 56 total | 18 passed | 33 failed | 2 partial     │
+╰──────────────────────────────────────────────────────────╯
+
+Category Scores:
+  Request Handling               ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/4F/0W/0N)
+  Frontend Security              ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/5F/0W/1N)
+  HTTP Security Headers          ██░░░░░░░░░░░░░░░░░░  11.1% (1P/5F/0W/0N)
+  Information Disclosure         ██░░░░░░░░░░░░░░░░░░  11.8% (1P/3F/0W/0N)
+  TLS/SSL Configuration          ████░░░░░░░░░░░░░░░░  20.4% (1P/6F/0W/0N)
+  Access Control                 ███████░░░░░░░░░░░░░  37.9% (2P/3F/0W/0N)
+  Global & Defaults              ████████░░░░░░░░░░░░  41.2% (1P/3F/0W/1N)
+  Backend Security               █████████░░░░░░░░░░░  47.1% (1P/2F/1W/1N)
+  Logging & Monitoring           ████████████████░░░░  83.3% (4P/1F/0W/0N)
+  Process Security               ██████████████████░░  91.3% (3P/1F/0W/0N)
+  Timeout Configuration          ██████████████████░░  93.1% (4P/0F/1W/0N)
+
+Findings (35):
+┏━━━━━━━━━━━━┳━━━━┳━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ ID         ┃ S… ┃ S… ┃ Message                                               ┃
+┡━━━━━━━━━━━━╇━━━━╇━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ HAPR-TLS-… │ c… │ f… │ No minimum TLS version enforcement found (ssl-min-ver │
+│            │    │    │ not set).                                             │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-options directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-ciphers directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ No Strict-Transport-Security (HSTS) header found in   │
+│            │    │    │ any frontend, listen, or def                          │
+│ HAPR-ACL-… │ h… │ f… │ No restrictions on common admin paths detected. Paths │
+│            │    │    │ like /admin, /manager, /wp                            │
+│ HAPR-ACL-… │ h… │ f… │ No rate limiting detected. Consider using             │
+│            │    │    │ stick-tables with http-request track-s                │
+│ HAPR-INF-… │ h… │ f… │ No directive found to remove or overwrite the Server  │
+│            │    │    │ response header. Backend so                           │
+│ HAPR-TLS-… │ m… │ f… │ Neither ssl-default-bind-ciphersuites nor             │
+│            │    │    │ ssl-default-bind-ciphers is configured                │
+│ HAPR-TLS-… │ m… │ f… │ tune.ssl.default-dh-param is not set in the global    │
+│            │    │    │ section.                                              │
+│ HAPR-ACL-… │ m… │ f… │ No ACL directives found in any frontend or listen     │
+│            │    │    │ section.                                              │
+│ HAPR-HDR-… │ m… │ f… │ X-Frame-Options header is not set. Add 'http-response │
+│            │    │    │ set-header X-Frame-Options                            │
+│ HAPR-HDR-… │ m… │ f… │ Content-Security-Policy header is not set. A CSP      │
+│            │    │    │ header helps prevent XSS and da                       │
+│ HAPR-HDR-… │ m… │ f… │ X-Content-Type-Options header is not set. Add         │
+│            │    │    │ 'http-response set-header X-Conten                    │
+│ HAPR-REQ-… │ m… │ f… │ No request body size limits found. Consider adding    │
+│            │    │    │ 'http-request deny if { req.b                         │
+│ HAPR-REQ-… │ m… │ f… │ No HTTP method filtering found. Consider restricting  │
+│            │    │    │ allowed methods with rules                            │
+│ HAPR-LOG-… │ m… │ f… │ No detailed log format found. The default log format  │
+│            │    │    │ is minimal and insufficient                           │
+│ HAPR-INF-… │ m… │ f… │ No custom error pages configured. Default HAProxy     │
+│            │    │    │ error pages expose software na                        │
+│ HAPR-INF-… │ m… │ f… │ No directives found to remove version-revealing       │
+│            │    │    │ response headers (X-Powered-By,                       │
+│ HAPR-TMO-… │ m… │ p… │ Timeout values partially acceptable: 1 timeout(s)     │
+│            │    │    │ exceed recommended limits.                            │
+│ HAPR-BKD-… │ m… │ f… │ No connection limits found on backend server lines or │
+│            │    │    │ sections. Add 'maxconn' to                            │
+│ HAPR-BKD-… │ m… │ f… │ No backend servers use SSL/TLS. Traffic between       │
+│            │    │    │ HAProxy and backends is unencryp                      │
+│ HAPR-FRT-… │ m… │ f… │ No connection rate limits found on frontends. Add     │
+│            │    │    │ 'rate-limit sessions' or 'maxc                        │
+│ HAPR-FRT-… │ m… │ f… │ maxconn is not set in the global section or any       │
+│            │    │    │ frontend. Set 'maxconn' to limit                      │
+│ HAPR-FRT-… │ m… │ f… │ No WAF integration detected. Consider integrating a   │
+│            │    │    │ Web Application Firewall (e.                          │
+│ HAPR-FRT-… │ m… │ f… │ No SQL injection protection rules found. Consider     │
+│            │    │    │ adding 'http-request deny' rul                        │
+│ HAPR-FRT-… │ m… │ f… │ No XSS protection rules found. Consider adding        │
+│            │    │    │ 'http-request deny' rules that ma                     │
+│ HAPR-GBL-… │ m… │ f… │ No maxconn set in global section — HAProxy will use   │
+│            │    │    │ default                                               │
+│ HAPR-GBL-… │ m… │ f… │ tune.ssl.default-dh-param is not set — default may be │
+│            │    │    │ weak                                                  │
+│ HAPR-PROC… │ l… │ f… │ ulimit-n is not set in the global section.            │
+│ HAPR-HDR-… │ l… │ f… │ Referrer-Policy header is not set. Add 'http-response │
+│            │    │    │ set-header Referrer-Policy                            │
+│ HAPR-HDR-… │ l… │ f… │ Permissions-Policy header is not set. Add             │
+│            │    │    │ 'http-response set-header Permissions-                │
+│ HAPR-REQ-… │ l… │ f… │ No URL length restrictions found. Consider adding     │
+│            │    │    │ 'http-request deny if { url_le                        │
+│ HAPR-REQ-… │ l… │ f… │ No request header size tuning found in the global     │
+│            │    │    │ section. Consider setting 'tun                        │
+│ HAPR-BKD-… │ l… │ p… │ Only partial retry/redispatch configuration found.    │
+│            │    │    │ Missing 'option redispatch'.                          │
+│ HAPR-GBL-… │ l… │ f… │ No DNS resolvers configured — server addresses are    │
+│            │    │    │ resolved only at startup                              │
+└────────────┴────┴────┴───────────────────────────────────────────────────────┘
+
+
+==================================================================
+Config: kubernetes-docker-packt.cfg
+==================================================================
+Parsing config: test-configs/github/kubernetes-docker-packt.cfg
+  Found: 2 frontend(s), 2 backend(s), 0 listen section(s), 2 bind(s), 6 
+server(s)
+Running security audit...
+╭────────────────── HAPR Security Score ───────────────────╮
+│ F  36.9%                                                 │
+│ Checks: 56 total | 11 passed | 25 failed | 1 partial     │
+╰──────────────────────────────────────────────────────────╯
+
+Category Scores:
+  Process Security               ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/4F/0W/0N)
+  Frontend Security              ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/2F/0W/4N)
+  TLS/SSL Configuration          ████░░░░░░░░░░░░░░░░  20.4% (1P/6F/0W/0N)
+  Access Control                 ██████░░░░░░░░░░░░░░  31.8% (1P/3F/0W/1N)
+  Information Disclosure         ██████░░░░░░░░░░░░░░  33.3% (1P/1F/0W/2N)
+  Backend Security               ████████░░░░░░░░░░░░  41.2% (1P/3F/0W/1N)
+  Global & Defaults              ████████░░░░░░░░░░░░  41.2% (1P/3F/0W/1N)
+  Logging & Monitoring           █████████████░░░░░░░  66.7% (3P/2F/0W/0N)
+  Timeout Configuration          ███████████████░░░░░  79.3% (3P/1F/1W/0N)
+  HTTP Security Headers          ████████████████████ 100.0% (0P/0F/0W/6N)
+  Request Handling               ████████████████████ 100.0% (0P/0F/0W/4N)
+
+Findings (26):
+┏━━━━━━━━━━━━┳━━━━┳━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ ID         ┃ S… ┃ S… ┃ Message                                               ┃
+┡━━━━━━━━━━━━╇━━━━╇━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ HAPR-PROC… │ c… │ f… │ No 'user' directive found in the global section.      │
+│ HAPR-TLS-… │ c… │ f… │ No minimum TLS version enforcement found (ssl-min-ver │
+│            │    │    │ not set).                                             │
+│ HAPR-PROC… │ h… │ f… │ chroot directive is missing from the global section.  │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-options directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-ciphers directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ No Strict-Transport-Security (HSTS) header found in   │
+│            │    │    │ any frontend, listen, or def                          │
+│ HAPR-ACL-… │ h… │ f… │ No rate limiting detected. Consider using             │
+│            │    │    │ stick-tables with http-request track-s                │
+│ HAPR-PROC… │ m… │ f… │ group directive is missing from the global section.   │
+│ HAPR-TLS-… │ m… │ f… │ Neither ssl-default-bind-ciphersuites nor             │
+│            │    │    │ ssl-default-bind-ciphers is configured                │
+│ HAPR-TLS-… │ m… │ f… │ tune.ssl.default-dh-param is not set in the global    │
+│            │    │    │ section.                                              │
+│ HAPR-ACL-… │ m… │ f… │ No ACL directives found in any frontend or listen     │
+│            │    │    │ section.                                              │
+│ HAPR-ACL-… │ m… │ f… │ No stick-table directives found. Stick-tables are     │
+│            │    │    │ required for connection tracki                        │
+│ HAPR-LOG-… │ m… │ f… │ No detailed log format found. The default log format  │
+│            │    │    │ is minimal and insufficient                           │
+│ HAPR-LOG-… │ m… │ f… │ Neither 'option httplog' nor 'option tcplog' is       │
+│            │    │    │ configured. Without these, HAPro                      │
+│ HAPR-INF-… │ m… │ f… │ No custom error pages configured. Default HAProxy     │
+│            │    │    │ error pages expose software na                        │
+│ HAPR-TMO-… │ m… │ f… │ No 'timeout http-request' directive found. Without    │
+│            │    │    │ this timeout, the server is v                         │
+│ HAPR-TMO-… │ m… │ p… │ Timeout values partially acceptable: 1 timeout(s)     │
+│            │    │    │ missing (http-request).                               │
+│ HAPR-BKD-… │ m… │ f… │ No connection limits found on backend server lines or │
+│            │    │    │ sections. Add 'maxconn' to                            │
+│ HAPR-BKD-… │ m… │ f… │ No backend servers use SSL/TLS. Traffic between       │
+│            │    │    │ HAProxy and backends is unencryp                      │
+│ HAPR-FRT-… │ m… │ f… │ No connection rate limits found on frontends. Add     │
+│            │    │    │ 'rate-limit sessions' or 'maxc                        │
+│ HAPR-FRT-… │ m… │ f… │ maxconn is not set in the global section or any       │
+│            │    │    │ frontend. Set 'maxconn' to limit                      │
+│ HAPR-GBL-… │ m… │ f… │ No maxconn set in global section — HAProxy will use   │
+│            │    │    │ default                                               │
+│ HAPR-GBL-… │ m… │ f… │ tune.ssl.default-dh-param is not set — default may be │
+│            │    │    │ weak                                                  │
+│ HAPR-PROC… │ l… │ f… │ ulimit-n is not set in the global section.            │
+│ HAPR-BKD-… │ l… │ f… │ Neither 'retries' nor 'option redispatch' is          │
+│            │    │    │ configured. Add both to defaults or                   │
+│ HAPR-GBL-… │ l… │ f… │ No DNS resolvers configured — server addresses are    │
+│            │    │    │ resolved only at startup                              │
+└────────────┴────┴────┴───────────────────────────────────────────────────────┘
+
+
+==================================================================
+Config: ocp4-helpernode.cfg
+==================================================================
+Parsing config: test-configs/github/ocp4-helpernode.cfg
+  Found: 4 frontend(s), 4 backend(s), 1 listen section(s), 5 bind(s), 11 
+server(s)
+Running security audit...
+╭────────────────── HAPR Security Score ───────────────────╮
+│ F  36.2%                                                 │
+│ Checks: 56 total | 17 passed | 36 failed | 2 partial     │
+╰──────────────────────────────────────────────────────────╯
+
+Category Scores:
+  Request Handling               ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/4F/0W/0N)
+  Information Disclosure         ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/4F/0W/0N)
+  HTTP Security Headers          ██░░░░░░░░░░░░░░░░░░  11.1% (1P/5F/0W/0N)
+  Access Control                 ██░░░░░░░░░░░░░░░░░░  13.8% (1P/4F/0W/0N)
+  Frontend Security              ██░░░░░░░░░░░░░░░░░░  14.8% (1P/5F/0W/0N)
+  TLS/SSL Configuration          ████░░░░░░░░░░░░░░░░  20.4% (1P/6F/0W/0N)
+  Backend Security               ██████░░░░░░░░░░░░░░  32.4% (1P/2F/1W/1N)
+  Global & Defaults              █████████░░░░░░░░░░░  45.8% (2P/3F/0W/0N)
+  Logging & Monitoring           ████████████░░░░░░░░  62.5% (3P/1F/1W/0N)
+  Timeout Configuration          █████████████████░░░  86.2% (4P/1F/0W/0N)
+  Process Security               ██████████████████░░  91.3% (3P/1F/0W/0N)
+
+Findings (38):
+┏━━━━━━━━━━━━┳━━━━┳━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ ID         ┃ S… ┃ S… ┃ Message                                               ┃
+┡━━━━━━━━━━━━╇━━━━╇━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ HAPR-TLS-… │ c… │ f… │ No minimum TLS version enforcement found (ssl-min-ver │
+│            │    │    │ not set).                                             │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-options directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-ciphers directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ No Strict-Transport-Security (HSTS) header found in   │
+│            │    │    │ any frontend, listen, or def                          │
+│ HAPR-ACL-… │ h… │ f… │ No restrictions on common admin paths detected. Paths │
+│            │    │    │ like /admin, /manager, /wp                            │
+│ HAPR-ACL-… │ h… │ f… │ No rate limiting detected. Consider using             │
+│            │    │    │ stick-tables with http-request track-s                │
+│ HAPR-ACL-… │ h… │ f… │ Stats endpoint is enabled without authentication in   │
+│            │    │    │ one or more sections. Add 's                          │
+│ HAPR-LOG-… │ h… │ f… │ Stats endpoint is enabled without authentication. Add │
+│            │    │    │ 'stats auth <user>:<passwo                            │
+│ HAPR-INF-… │ h… │ f… │ No directive found to remove or overwrite the Server  │
+│            │    │    │ response header. Backend so                           │
+│ HAPR-BKD-… │ h… │ p… │ Some backends/listens are missing health checks.      │
+│ HAPR-FRT-… │ h… │ f… │ HTTP frontends found without HTTP-to-HTTPS redirect.  │
+│            │    │    │ Add 'redirect scheme https                            │
+│ HAPR-GBL-… │ h… │ f… │ Stats socket permissions are not restrictive enough   │
+│ HAPR-TLS-… │ m… │ f… │ Neither ssl-default-bind-ciphersuites nor             │
+│            │    │    │ ssl-default-bind-ciphers is configured                │
+│ HAPR-TLS-… │ m… │ f… │ tune.ssl.default-dh-param is not set in the global    │
+│            │    │    │ section.                                              │
+│ HAPR-ACL-… │ m… │ f… │ No stick-table directives found. Stick-tables are     │
+│            │    │    │ required for connection tracki                        │
+│ HAPR-HDR-… │ m… │ f… │ X-Frame-Options header is not set. Add 'http-response │
+│            │    │    │ set-header X-Frame-Options                            │
+│ HAPR-HDR-… │ m… │ f… │ Content-Security-Policy header is not set. A CSP      │
+│            │    │    │ header helps prevent XSS and da                       │
+│ HAPR-HDR-… │ m… │ f… │ X-Content-Type-Options header is not set. Add         │
+│            │    │    │ 'http-response set-header X-Conten                    │
+│ HAPR-REQ-… │ m… │ f… │ No request body size limits found. Consider adding    │
+│            │    │    │ 'http-request deny if { req.b                         │
+│ HAPR-REQ-… │ m… │ f… │ No HTTP method filtering found. Consider restricting  │
+│            │    │    │ allowed methods with rules                            │
+│ HAPR-LOG-… │ m… │ p… │ option httplog is configured but a custom log-format  │
+│            │    │    │ string would provide richer                           │
+│ HAPR-INF-… │ m… │ f… │ No custom error pages configured. Default HAProxy     │
+│            │    │    │ error pages expose software na                        │
+│ HAPR-INF-… │ m… │ f… │ No directives found to remove version-revealing       │
+│            │    │    │ response headers (X-Powered-By,                       │
+│ HAPR-TMO-… │ m… │ f… │ Timeout values are critically misconfigured.          │
+│            │    │    │ Extremely long timeouts found: defa                   │
+│ HAPR-BKD-… │ m… │ f… │ No connection limits found on backend server lines or │
+│            │    │    │ sections. Add 'maxconn' to                            │
+│ HAPR-BKD-… │ m… │ f… │ No backend servers use SSL/TLS. Traffic between       │
+│            │    │    │ HAProxy and backends is unencryp                      │
+│ HAPR-FRT-… │ m… │ f… │ No connection rate limits found on frontends. Add     │
+│            │    │    │ 'rate-limit sessions' or 'maxc                        │
+│ HAPR-FRT-… │ m… │ f… │ No WAF integration detected. Consider integrating a   │
+│            │    │    │ Web Application Firewall (e.                          │
+│ HAPR-FRT-… │ m… │ f… │ No SQL injection protection rules found. Consider     │
+│            │    │    │ adding 'http-request deny' rul                        │
+│ HAPR-FRT-… │ m… │ f… │ No XSS protection rules found. Consider adding        │
+│            │    │    │ 'http-request deny' rules that ma                     │
+│ HAPR-GBL-… │ m… │ f… │ tune.ssl.default-dh-param is not set — default may be │
+│            │    │    │ weak                                                  │
+│ HAPR-PROC… │ l… │ f… │ ulimit-n is not set in the global section.            │
+│ HAPR-HDR-… │ l… │ f… │ Referrer-Policy header is not set. Add 'http-response │
+│            │    │    │ set-header Referrer-Policy                            │
+│ HAPR-HDR-… │ l… │ f… │ Permissions-Policy header is not set. Add             │
+│            │    │    │ 'http-response set-header Permissions-                │
+│ HAPR-REQ-… │ l… │ f… │ No URL length restrictions found. Consider adding     │
+│            │    │    │ 'http-request deny if { url_le                        │
+│ HAPR-REQ-… │ l… │ f… │ No request header size tuning found in the global     │
+│            │    │    │ section. Consider setting 'tun                        │
+│ HAPR-INF-… │ l… │ f… │ Stats page is enabled in listen 'stats' without       │
+│            │    │    │ 'stats hide-version'. The HAProx                      │
+│ HAPR-GBL-… │ l… │ f… │ No DNS resolvers configured — server addresses are    │
+│            │    │    │ resolved only at startup                              │
+└────────────┴────┴────┴───────────────────────────────────────────────────────┘
+
+
+==================================================================
+Config: rabbitmq-lb.cfg
+==================================================================
+Parsing config: test-configs/github/rabbitmq-lb.cfg
+  Found: 0 frontend(s), 0 backend(s), 2 listen section(s), 0 bind(s), 2 
+server(s)
+Running security audit...
+╭────────────────── HAPR Security Score ───────────────────╮
+│ F  26.9%                                                 │
+│ Checks: 56 total | 12 passed | 39 failed | 3 partial     │
+╰──────────────────────────────────────────────────────────╯
+
+Category Scores:
+  Process Security               ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/4F/0W/0N)
+  Access Control                 ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/5F/0W/0N)
+  Request Handling               ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/4F/0W/0N)
+  Information Disclosure         ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/4F/0W/0N)
+  HTTP Security Headers          ██░░░░░░░░░░░░░░░░░░  11.1% (1P/5F/0W/0N)
+  Frontend Security              ████░░░░░░░░░░░░░░░░  20.0% (1P/4F/0W/1N)
+  TLS/SSL Configuration          ████░░░░░░░░░░░░░░░░  20.4% (1P/6F/0W/0N)
+  Backend Security               ██████░░░░░░░░░░░░░░  32.4% (1P/2F/1W/1N)
+  Global & Defaults              █████████░░░░░░░░░░░  45.8% (2P/3F/0W/0N)
+  Logging & Monitoring           ████████████░░░░░░░░  62.5% (3P/1F/1W/0N)
+  Timeout Configuration          ███████████████░░░░░  79.3% (3P/1F/1W/0N)
+
+Findings (42):
+┏━━━━━━━━━━━━┳━━━━┳━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ ID         ┃ S… ┃ S… ┃ Message                                               ┃
+┡━━━━━━━━━━━━╇━━━━╇━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ HAPR-PROC… │ c… │ f… │ No 'user' directive found in the global section.      │
+│ HAPR-TLS-… │ c… │ f… │ No minimum TLS version enforcement found (ssl-min-ver │
+│            │    │    │ not set).                                             │
+│ HAPR-PROC… │ h… │ f… │ chroot directive is missing from the global section.  │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-options directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-ciphers directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ No Strict-Transport-Security (HSTS) header found in   │
+│            │    │    │ any frontend, listen, or def                          │
+│ HAPR-ACL-… │ h… │ f… │ No restrictions on common admin paths detected. Paths │
+│            │    │    │ like /admin, /manager, /wp                            │
+│ HAPR-ACL-… │ h… │ f… │ No rate limiting detected. Consider using             │
+│            │    │    │ stick-tables with http-request track-s                │
+│ HAPR-ACL-… │ h… │ f… │ Stats endpoint is enabled without authentication in   │
+│            │    │    │ one or more sections. Add 's                          │
+│ HAPR-LOG-… │ h… │ f… │ Stats endpoint is enabled without authentication. Add │
+│            │    │    │ 'stats auth <user>:<passwo                            │
+│ HAPR-INF-… │ h… │ f… │ No directive found to remove or overwrite the Server  │
+│            │    │    │ response header. Backend so                           │
+│ HAPR-BKD-… │ h… │ p… │ Some backends/listens are missing health checks.      │
+│ HAPR-GBL-… │ h… │ f… │ Stats socket permissions are not restrictive enough   │
+│ HAPR-PROC… │ m… │ f… │ group directive is missing from the global section.   │
+│ HAPR-TLS-… │ m… │ f… │ Neither ssl-default-bind-ciphersuites nor             │
+│            │    │    │ ssl-default-bind-ciphers is configured                │
+│ HAPR-TLS-… │ m… │ f… │ tune.ssl.default-dh-param is not set in the global    │
+│            │    │    │ section.                                              │
+│ HAPR-ACL-… │ m… │ f… │ No ACL directives found in any frontend or listen     │
+│            │    │    │ section.                                              │
+│ HAPR-ACL-… │ m… │ f… │ No stick-table directives found. Stick-tables are     │
+│            │    │    │ required for connection tracki                        │
+│ HAPR-HDR-… │ m… │ f… │ X-Frame-Options header is not set. Add 'http-response │
+│            │    │    │ set-header X-Frame-Options                            │
+│ HAPR-HDR-… │ m… │ f… │ Content-Security-Policy header is not set. A CSP      │
+│            │    │    │ header helps prevent XSS and da                       │
+│ HAPR-HDR-… │ m… │ f… │ X-Content-Type-Options header is not set. Add         │
+│            │    │    │ 'http-response set-header X-Conten                    │
+│ HAPR-REQ-… │ m… │ f… │ No request body size limits found. Consider adding    │
+│            │    │    │ 'http-request deny if { req.b                         │
+│ HAPR-REQ-… │ m… │ f… │ No HTTP method filtering found. Consider restricting  │
+│            │    │    │ allowed methods with rules                            │
+│ HAPR-LOG-… │ m… │ p… │ option httplog is configured but a custom log-format  │
+│            │    │    │ string would provide richer                           │
+│ HAPR-INF-… │ m… │ f… │ No custom error pages configured. Default HAProxy     │
+│            │    │    │ error pages expose software na                        │
+│ HAPR-INF-… │ m… │ f… │ No directives found to remove version-revealing       │
+│            │    │    │ response headers (X-Powered-By,                       │
+│ HAPR-TMO-… │ m… │ f… │ No 'timeout http-request' directive found. Without    │
+│            │    │    │ this timeout, the server is v                         │
+│ HAPR-TMO-… │ m… │ p… │ Timeout values partially acceptable: 1 timeout(s)     │
+│            │    │    │ missing (http-request).                               │
+│ HAPR-BKD-… │ m… │ f… │ No connection limits found on backend server lines or │
+│            │    │    │ sections. Add 'maxconn' to                            │
+│ HAPR-BKD-… │ m… │ f… │ No backend servers use SSL/TLS. Traffic between       │
+│            │    │    │ HAProxy and backends is unencryp                      │
+│ HAPR-FRT-… │ m… │ f… │ No connection rate limits found on frontends. Add     │
+│            │    │    │ 'rate-limit sessions' or 'maxc                        │
+│ HAPR-FRT-… │ m… │ f… │ No WAF integration detected. Consider integrating a   │
+│            │    │    │ Web Application Firewall (e.                          │
+│ HAPR-FRT-… │ m… │ f… │ No SQL injection protection rules found. Consider     │
+│            │    │    │ adding 'http-request deny' rul                        │
+│ HAPR-FRT-… │ m… │ f… │ No XSS protection rules found. Consider adding        │
+│            │    │    │ 'http-request deny' rules that ma                     │
+│ HAPR-GBL-… │ m… │ f… │ tune.ssl.default-dh-param is not set — default may be │
+│            │    │    │ weak                                                  │
+│ HAPR-PROC… │ l… │ f… │ ulimit-n is not set in the global section.            │
+│ HAPR-HDR-… │ l… │ f… │ Referrer-Policy header is not set. Add 'http-response │
+│            │    │    │ set-header Referrer-Policy                            │
+│ HAPR-HDR-… │ l… │ f… │ Permissions-Policy header is not set. Add             │
+│            │    │    │ 'http-response set-header Permissions-                │
+│ HAPR-REQ-… │ l… │ f… │ No URL length restrictions found. Consider adding     │
+│            │    │    │ 'http-request deny if { url_le                        │
+│ HAPR-REQ-… │ l… │ f… │ No request header size tuning found in the global     │
+│            │    │    │ section. Consider setting 'tun                        │
+│ HAPR-INF-… │ l… │ f… │ Stats page is enabled in listen 'private_monitoring   │
+│            │    │    │ :8101' without 'stats hide-v                          │
+│ HAPR-GBL-… │ l… │ f… │ No DNS resolvers configured — server addresses are    │
+│            │    │    │ resolved only at startup                              │
+└────────────┴────┴────┴───────────────────────────────────────────────────────┘
+
+
+==================================================================
+Config: rpm-haproxy.cfg
+==================================================================
+Parsing config: test-configs/github/rpm-haproxy.cfg
+  Found: 1 frontend(s), 2 backend(s), 0 listen section(s), 1 bind(s), 6 
+server(s)
+Running security audit...
+╭────────────────── HAPR Security Score ───────────────────╮
+│ F  29.3%                                                 │
+│ Checks: 56 total | 15 passed | 40 failed | 1 partial     │
+╰──────────────────────────────────────────────────────────╯
+
+Category Scores:
+  Access Control                 ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/5F/0W/0N)
+  Request Handling               ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/4F/0W/0N)
+  Information Disclosure         ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/4F/0W/0N)
+  Timeout Configuration          ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/5F/0W/0N)
+  HTTP Security Headers          ██░░░░░░░░░░░░░░░░░░  11.1% (1P/5F/0W/0N)
+  TLS/SSL Configuration          ████░░░░░░░░░░░░░░░░  20.4% (1P/6F/0W/0N)
+  Frontend Security              █████░░░░░░░░░░░░░░░  29.6% (2P/4F/0W/0N)
+  Global & Defaults              █████████░░░░░░░░░░░  45.8% (2P/3F/0W/0N)
+  Backend Security               ████████████░░░░░░░░  61.9% (3P/2F/0W/0N)
+  Logging & Monitoring           ████████████░░░░░░░░  62.5% (3P/1F/1W/0N)
+  Process Security               ██████████████████░░  91.3% (3P/1F/0W/0N)
+
+Findings (41):
+┏━━━━━━━━━━━━┳━━━━┳━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ ID         ┃ S… ┃ S… ┃ Message                                               ┃
+┡━━━━━━━━━━━━╇━━━━╇━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ HAPR-TLS-… │ c… │ f… │ No minimum TLS version enforcement found (ssl-min-ver │
+│            │    │    │ not set).                                             │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-options directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-ciphers directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ No Strict-Transport-Security (HSTS) header found in   │
+│            │    │    │ any frontend, listen, or def                          │
+│ HAPR-ACL-… │ h… │ f… │ No restrictions on common admin paths detected. Paths │
+│            │    │    │ like /admin, /manager, /wp                            │
+│ HAPR-ACL-… │ h… │ f… │ No rate limiting detected. Consider using             │
+│            │    │    │ stick-tables with http-request track-s                │
+│ HAPR-ACL-… │ h… │ f… │ Stats endpoint is enabled without authentication in   │
+│            │    │    │ one or more sections. Add 's                          │
+│ HAPR-LOG-… │ h… │ f… │ Stats endpoint is enabled without authentication. Add │
+│            │    │    │ 'stats auth <user>:<passwo                            │
+│ HAPR-INF-… │ h… │ f… │ No directive found to remove or overwrite the Server  │
+│            │    │    │ response header. Backend so                           │
+│ HAPR-TMO-… │ h… │ f… │ No 'timeout client' directive found in defaults or    │
+│            │    │    │ global. Idle client connectio                         │
+│ HAPR-TMO-… │ h… │ f… │ No 'timeout server' directive found in defaults or    │
+│            │    │    │ global. Unresponsive backends                         │
+│ HAPR-TMO-… │ h… │ f… │ No 'timeout connect' directive found in defaults or   │
+│            │    │    │ global. Connection attempts                           │
+│ HAPR-FRT-… │ h… │ f… │ HTTP frontends found without HTTP-to-HTTPS redirect.  │
+│            │    │    │ Add 'redirect scheme https                            │
+│ HAPR-GBL-… │ h… │ f… │ No defaults section found in configuration            │
+│ HAPR-TLS-… │ m… │ f… │ Neither ssl-default-bind-ciphersuites nor             │
+│            │    │    │ ssl-default-bind-ciphers is configured                │
+│ HAPR-TLS-… │ m… │ f… │ tune.ssl.default-dh-param is not set in the global    │
+│            │    │    │ section.                                              │
+│ HAPR-ACL-… │ m… │ f… │ No ACL directives found in any frontend or listen     │
+│            │    │    │ section.                                              │
+│ HAPR-ACL-… │ m… │ f… │ No stick-table directives found. Stick-tables are     │
+│            │    │    │ required for connection tracki                        │
+│ HAPR-HDR-… │ m… │ f… │ X-Frame-Options header is not set. Add 'http-response │
+│            │    │    │ set-header X-Frame-Options                            │
+│ HAPR-HDR-… │ m… │ f… │ Content-Security-Policy header is not set. A CSP      │
+│            │    │    │ header helps prevent XSS and da                       │
+│ HAPR-HDR-… │ m… │ f… │ X-Content-Type-Options header is not set. Add         │
+│            │    │    │ 'http-response set-header X-Conten                    │
+│ HAPR-REQ-… │ m… │ f… │ No request body size limits found. Consider adding    │
+│            │    │    │ 'http-request deny if { req.b                         │
+│ HAPR-REQ-… │ m… │ f… │ No HTTP method filtering found. Consider restricting  │
+│            │    │    │ allowed methods with rules                            │
+│ HAPR-LOG-… │ m… │ p… │ option httplog is configured but a custom log-format  │
+│            │    │    │ string would provide richer                           │
+│ HAPR-INF-… │ m… │ f… │ No custom error pages configured. Default HAProxy     │
+│            │    │    │ error pages expose software na                        │
+│ HAPR-INF-… │ m… │ f… │ No directives found to remove version-revealing       │
+│            │    │    │ response headers (X-Powered-By,                       │
+│ HAPR-TMO-… │ m… │ f… │ No 'timeout http-request' directive found. Without    │
+│            │    │    │ this timeout, the server is v                         │
+│ HAPR-TMO-… │ m… │ f… │ Timeout values are critically misconfigured. All      │
+│            │    │    │ essential timeouts are missing                        │
+│ HAPR-BKD-… │ m… │ f… │ No backend servers use SSL/TLS. Traffic between       │
+│            │    │    │ HAProxy and backends is unencryp                      │
+│ HAPR-BKD-… │ m… │ f… │ Cookie-based persistence is configured without        │
+│            │    │    │ security attributes. Add 'secure'                     │
+│ HAPR-FRT-… │ m… │ f… │ No WAF integration detected. Consider integrating a   │
+│            │    │    │ Web Application Firewall (e.                          │
+│ HAPR-FRT-… │ m… │ f… │ No SQL injection protection rules found. Consider     │
+│            │    │    │ adding 'http-request deny' rul                        │
+│ HAPR-FRT-… │ m… │ f… │ No XSS protection rules found. Consider adding        │
+│            │    │    │ 'http-request deny' rules that ma                     │
+│ HAPR-GBL-… │ m… │ f… │ tune.ssl.default-dh-param is not set — default may be │
+│            │    │    │ weak                                                  │
+│ HAPR-PROC… │ l… │ f… │ ulimit-n is not set in the global section.            │
+│ HAPR-HDR-… │ l… │ f… │ Referrer-Policy header is not set. Add 'http-response │
+│            │    │    │ set-header Referrer-Policy                            │
+│ HAPR-HDR-… │ l… │ f… │ Permissions-Policy header is not set. Add             │
+│            │    │    │ 'http-response set-header Permissions-                │
+│ HAPR-REQ-… │ l… │ f… │ No URL length restrictions found. Consider adding     │
+│            │    │    │ 'http-request deny if { url_le                        │
+│ HAPR-REQ-… │ l… │ f… │ No request header size tuning found in the global     │
+│            │    │    │ section. Consider setting 'tun                        │
+│ HAPR-INF-… │ l… │ f… │ Stats page is enabled in frontend 'public' without    │
+│            │    │    │ 'stats hide-version'. The HAP                         │
+│ HAPR-GBL-… │ l… │ f… │ No DNS resolvers configured — server addresses are    │
+│            │    │    │ resolved only at startup                              │
+└────────────┴────┴────┴───────────────────────────────────────────────────────┘
+
+
+==================================================================
+Config: severalnines-db-ha.cfg
+==================================================================
+Parsing config: test-configs/github/severalnines-db-ha.cfg
+  Found: 0 frontend(s), 0 backend(s), 1 listen section(s), 0 bind(s), 0 
+server(s)
+Running security audit...
+╭────────────────── HAPR Security Score ───────────────────╮
+│ F  25.8%                                                 │
+│ Checks: 56 total | 11 passed | 40 failed | 2 partial     │
+╰──────────────────────────────────────────────────────────╯
+
+Category Scores:
+  Request Handling               ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/4F/0W/0N)
+  Logging & Monitoring           ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/5F/0W/0N)
+  Information Disclosure         ░░░░░░░░░░░░░░░░░░░░   0.0% (0P/4F/0W/0N)
+  HTTP Security Headers          ██░░░░░░░░░░░░░░░░░░  11.1% (1P/5F/0W/0N)
+  Access Control                 ██░░░░░░░░░░░░░░░░░░  13.8% (1P/4F/0W/0N)
+  Backend Security               ███░░░░░░░░░░░░░░░░░  15.4% (1P/2F/0W/2N)
+  Frontend Security              ████░░░░░░░░░░░░░░░░  20.0% (1P/4F/0W/1N)
+  TLS/SSL Configuration          ████░░░░░░░░░░░░░░░░  20.4% (1P/6F/0W/0N)
+  Global & Defaults              ██████░░░░░░░░░░░░░░  31.2% (1P/3F/1W/0N)
+  Process Security               ████████████░░░░░░░░  60.9% (2P/2F/0W/0N)
+  Timeout Configuration          ███████████████░░░░░  79.3% (3P/1F/1W/0N)
+
+Findings (42):
+┏━━━━━━━━━━━━┳━━━━┳━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ ID         ┃ S… ┃ S… ┃ Message                                               ┃
+┡━━━━━━━━━━━━╇━━━━╇━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ HAPR-TLS-… │ c… │ f… │ No minimum TLS version enforcement found (ssl-min-ver │
+│            │    │    │ not set).                                             │
+│ HAPR-PROC… │ h… │ f… │ chroot directive is missing from the global section.  │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-options directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-ciphers directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ No Strict-Transport-Security (HSTS) header found in   │
+│            │    │    │ any frontend, listen, or def                          │
+│ HAPR-ACL-… │ h… │ f… │ No restrictions on common admin paths detected. Paths │
+│            │    │    │ like /admin, /manager, /wp                            │
+│ HAPR-ACL-… │ h… │ f… │ No rate limiting detected. Consider using             │
+│            │    │    │ stick-tables with http-request track-s                │
+│ HAPR-ACL-… │ h… │ f… │ Stats endpoint is enabled without authentication in   │
+│            │    │    │ one or more sections. Add 's                          │
+│ HAPR-LOG-… │ h… │ f… │ No 'log' directive found in the global section. Add a │
+│            │    │    │ log target (e.g. 'log /dev                            │
+│ HAPR-LOG-… │ h… │ f… │ Stats endpoint is enabled without authentication. Add │
+│            │    │    │ 'stats auth <user>:<passwo                            │
+│ HAPR-INF-… │ h… │ f… │ No directive found to remove or overwrite the Server  │
+│            │    │    │ response header. Backend so                           │
+│ HAPR-BKD-… │ h… │ f… │ No health checks configured on any backend or listen  │
+│            │    │    │ section. Add 'option httpch                           │
+│ HAPR-GBL-… │ h… │ p… │ Defaults section missing some essential directives:   │
+│            │    │    │ log                                                   │
+│ HAPR-GBL-… │ h… │ f… │ Stats socket permissions are not restrictive enough   │
+│ HAPR-TLS-… │ m… │ f… │ Neither ssl-default-bind-ciphersuites nor             │
+│            │    │    │ ssl-default-bind-ciphers is configured                │
+│ HAPR-TLS-… │ m… │ f… │ tune.ssl.default-dh-param is not set in the global    │
+│            │    │    │ section.                                              │
+│ HAPR-ACL-… │ m… │ f… │ No stick-table directives found. Stick-tables are     │
+│            │    │    │ required for connection tracki                        │
+│ HAPR-HDR-… │ m… │ f… │ X-Frame-Options header is not set. Add 'http-response │
+│            │    │    │ set-header X-Frame-Options                            │
+│ HAPR-HDR-… │ m… │ f… │ Content-Security-Policy header is not set. A CSP      │
+│            │    │    │ header helps prevent XSS and da                       │
+│ HAPR-HDR-… │ m… │ f… │ X-Content-Type-Options header is not set. Add         │
+│            │    │    │ 'http-response set-header X-Conten                    │
+│ HAPR-REQ-… │ m… │ f… │ No request body size limits found. Consider adding    │
+│            │    │    │ 'http-request deny if { req.b                         │
+│ HAPR-REQ-… │ m… │ f… │ No HTTP method filtering found. Consider restricting  │
+│            │    │    │ allowed methods with rules                            │
+│ HAPR-LOG-… │ m… │ f… │ No detailed log format found. The default log format  │
+│            │    │    │ is minimal and insufficient                           │
+│ HAPR-LOG-… │ m… │ f… │ Neither 'option httplog' nor 'option tcplog' is       │
+│            │    │    │ configured. Without these, HAPro                      │
+│ HAPR-INF-… │ m… │ f… │ No custom error pages configured. Default HAProxy     │
+│            │    │    │ error pages expose software na                        │
+│ HAPR-INF-… │ m… │ f… │ No directives found to remove version-revealing       │
+│            │    │    │ response headers (X-Powered-By,                       │
+│ HAPR-TMO-… │ m… │ f… │ No 'timeout http-request' directive found. Without    │
+│            │    │    │ this timeout, the server is v                         │
+│ HAPR-TMO-… │ m… │ p… │ Timeout values partially acceptable: 1 timeout(s)     │
+│            │    │    │ missing (http-request).                               │
+│ HAPR-BKD-… │ m… │ f… │ No connection limits found on backend server lines or │
+│            │    │    │ sections. Add 'maxconn' to                            │
+│ HAPR-FRT-… │ m… │ f… │ No connection rate limits found on frontends. Add     │
+│            │    │    │ 'rate-limit sessions' or 'maxc                        │
+│ HAPR-FRT-… │ m… │ f… │ No WAF integration detected. Consider integrating a   │
+│            │    │    │ Web Application Firewall (e.                          │
+│ HAPR-FRT-… │ m… │ f… │ No SQL injection protection rules found. Consider     │
+│            │    │    │ adding 'http-request deny' rul                        │
+│ HAPR-FRT-… │ m… │ f… │ No XSS protection rules found. Consider adding        │
+│            │    │    │ 'http-request deny' rules that ma                     │
+│ HAPR-GBL-… │ m… │ f… │ tune.ssl.default-dh-param is not set — default may be │
+│            │    │    │ weak                                                  │
+│ HAPR-PROC… │ l… │ f… │ ulimit-n is not set in the global section.            │
+│ HAPR-HDR-… │ l… │ f… │ Referrer-Policy header is not set. Add 'http-response │
+│            │    │    │ set-header Referrer-Policy                            │
+│ HAPR-HDR-… │ l… │ f… │ Permissions-Policy header is not set. Add             │
+│            │    │    │ 'http-response set-header Permissions-                │
+│ HAPR-REQ-… │ l… │ f… │ No URL length restrictions found. Consider adding     │
+│            │    │    │ 'http-request deny if { url_le                        │
+│ HAPR-REQ-… │ l… │ f… │ No request header size tuning found in the global     │
+│            │    │    │ section. Consider setting 'tun                        │
+│ HAPR-LOG-… │ l… │ f… │ No log directives found in the global section, so no  │
+│            │    │    │ log level can be determined                           │
+│ HAPR-INF-… │ l… │ f… │ Stats page is enabled in listen 'admin_page           │
+│            │    │    │ 0.0.0.0:9600' without 'stats hide-ve                  │
+│ HAPR-GBL-… │ l… │ f… │ No DNS resolvers configured — server addresses are    │
+│            │    │    │ resolved only at startup                              │
+└────────────┴────┴────┴───────────────────────────────────────────────────────┘
+
+
+==================================================================
+Config: triton-moray.cfg
+==================================================================
+Parsing config: test-configs/github/triton-moray.cfg
+  Found: 1 frontend(s), 1 backend(s), 0 listen section(s), 1 bind(s), 0 
+server(s)
+Running security audit...
+╭────────────────── HAPR Security Score ───────────────────╮
+│ F  34.3%                                                 │
+│ Checks: 56 total | 12 passed | 24 failed | 1 partial     │
+╰──────────────────────────────────────────────────────────╯
+
+Category Scores:
+  Backend Security               ███░░░░░░░░░░░░░░░░░  15.4% (1P/2F/0W/2N)
+  Global & Defaults              ███░░░░░░░░░░░░░░░░░  16.7% (1P/4F/0W/0N)
+  TLS/SSL Configuration          ████░░░░░░░░░░░░░░░░  20.4% (1P/6F/0W/0N)
+  Timeout Configuration          ██████░░░░░░░░░░░░░░  31.0% (1P/3F/1W/0N)
+  Access Control                 ██████░░░░░░░░░░░░░░  31.8% (1P/3F/0W/1N)
+  Information Disclosure         ██████░░░░░░░░░░░░░░  33.3% (1P/1F/0W/2N)
+  Frontend Security              ██████████░░░░░░░░░░  50.0% (1P/1F/0W/4N)
+  Process Security               ████████████░░░░░░░░  60.9% (2P/2F/0W/0N)
+  Logging & Monitoring           █████████████░░░░░░░  66.7% (3P/2F/0W/0N)
+  HTTP Security Headers          ████████████████████ 100.0% (0P/0F/0W/6N)
+  Request Handling               ████████████████████ 100.0% (0P/0F/0W/4N)
+
+Findings (25):
+┏━━━━━━━━━━━━┳━━━━┳━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ ID         ┃ S… ┃ S… ┃ Message                                               ┃
+┡━━━━━━━━━━━━╇━━━━╇━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ HAPR-TLS-… │ c… │ f… │ No minimum TLS version enforcement found (ssl-min-ver │
+│            │    │    │ not set).                                             │
+│ HAPR-PROC… │ h… │ f… │ chroot directive is missing from the global section.  │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-options directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ Global ssl-default-bind-ciphers directive is missing. │
+│ HAPR-TLS-… │ h… │ f… │ No Strict-Transport-Security (HSTS) header found in   │
+│            │    │    │ any frontend, listen, or def                          │
+│ HAPR-ACL-… │ h… │ f… │ No rate limiting detected. Consider using             │
+│            │    │    │ stick-tables with http-request track-s                │
+│ HAPR-TMO-… │ h… │ f… │ No 'timeout client' directive found in defaults or    │
+│            │    │    │ global. Idle client connectio                         │
+│ HAPR-TMO-… │ h… │ f… │ No 'timeout server' directive found in defaults or    │
+│            │    │    │ global. Unresponsive backends                         │
+│ HAPR-BKD-… │ h… │ f… │ No health checks configured on any backend or listen  │
+│            │    │    │ section. Add 'option httpch                           │
+│ HAPR-GBL-… │ h… │ f… │ Defaults section is missing most essential            │
+│            │    │    │ directives: log, timeout client, time                 │
+│ HAPR-GBL-… │ h… │ f… │ Stats socket permissions are not restrictive enough   │
+│ HAPR-TLS-… │ m… │ f… │ Neither ssl-default-bind-ciphersuites nor             │
+│            │    │    │ ssl-default-bind-ciphers is configured                │
+│ HAPR-TLS-… │ m… │ f… │ tune.ssl.default-dh-param is not set in the global    │
+│            │    │    │ section.                                              │
+│ HAPR-ACL-… │ m… │ f… │ No ACL directives found in any frontend or listen     │
+│            │    │    │ section.                                              │
+│ HAPR-ACL-… │ m… │ f… │ No stick-table directives found. Stick-tables are     │
+│            │    │    │ required for connection tracki                        │
+│ HAPR-LOG-… │ m… │ f… │ No detailed log format found. The default log format  │
+│            │    │    │ is minimal and insufficient                           │
+│ HAPR-LOG-… │ m… │ f… │ Neither 'option httplog' nor 'option tcplog' is       │
+│            │    │    │ configured. Without these, HAPro                      │
+│ HAPR-INF-… │ m… │ f… │ No custom error pages configured. Default HAProxy     │
+│            │    │    │ error pages expose software na                        │
+│ HAPR-TMO-… │ m… │ f… │ No 'timeout http-request' directive found. Without    │
+│            │    │    │ this timeout, the server is v                         │
+│ HAPR-TMO-… │ m… │ p… │ Timeout values partially acceptable: 3 timeout(s)     │
+│            │    │    │ missing (client, server, http-                        │
+│ HAPR-BKD-… │ m… │ f… │ No connection limits found on backend server lines or │
+│            │    │    │ sections. Add 'maxconn' to                            │
+│ HAPR-FRT-… │ m… │ f… │ No connection rate limits found on frontends. Add     │
+│            │    │    │ 'rate-limit sessions' or 'maxc                        │
+│ HAPR-GBL-… │ m… │ f… │ tune.ssl.default-dh-param is not set — default may be │
+│            │    │    │ weak                                                  │
+│ HAPR-PROC… │ l… │ f… │ ulimit-n is not set in the global section.            │
+│ HAPR-GBL-… │ l… │ f… │ No DNS resolvers configured — server addresses are    │
+│            │    │    │ resolved only at startup                              │
+└────────────┴────┴────┴───────────────────────────────────────────────────────┘
+
+
