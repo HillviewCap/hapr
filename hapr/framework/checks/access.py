@@ -1,7 +1,7 @@
 """Access control checks for HAProxy configurations.
 
 Examines ACL definitions, admin path restrictions, rate limiting,
-stick-table usage, and stats endpoint security.
+stick-table usage, stats endpoint security, and userlist password storage.
 """
 
 from __future__ import annotations
@@ -9,6 +9,10 @@ from __future__ import annotations
 import re
 
 from ...models import HAProxyConfig, Finding, Status
+
+# Crypt-style hash prefix ($id$...) — covers MD5 ($1$), Blowfish ($2a$/$2b$/$2y$),
+# SHA-256 ($5$), SHA-512 ($6$), and similar schemes.
+_CRYPT_HASH_RE = re.compile(r"^\$\d\w?\$")
 
 # Common weak passwords that should be flagged in stats auth
 _WEAK_PASSWORDS = {
@@ -272,11 +276,11 @@ def check_stats_access_restricted(config: HAProxyConfig) -> Finding:
                         weak_password_issues.append(
                             f"[{section_label}] stats auth password too short ({len(password)} chars)"
                         )
-                    elif password.lower() in _WEAK_PASSWORDS:
+                    if password.lower() in _WEAK_PASSWORDS:
                         weak_password_issues.append(
                             f"[{section_label}] stats auth uses common weak password"
                         )
-                    elif username == password:
+                    if username == password:
                         weak_password_issues.append(
                             f"[{section_label}] stats auth username equals password"
                         )
@@ -331,4 +335,60 @@ def check_stats_access_restricted(config: HAProxyConfig) -> Finding:
         status=Status.PASS,
         message="Stats endpoint is enabled and secured with authentication.",
         evidence=f"Secured stats sections: {', '.join(secured_sections)}",
+    )
+
+
+def check_userlist_passwords(config: HAProxyConfig) -> Finding:
+    """HAPR-ACL-006: Check that userlist passwords use hashed storage.
+
+    HAProxy supports two password directives in userlists:
+    - ``password`` — should contain a crypt(3)-style hash (e.g. ``$6$...``)
+    - ``insecure-password`` — stores the password in cleartext
+
+    Returns N/A if no userlists are defined, FAIL if any user has
+    ``insecure-password`` or a ``password`` value that doesn't look like
+    a crypt hash, PASS if all passwords are properly hashed.
+    """
+    if not config.userlists:
+        return Finding(
+            check_id="HAPR-ACL-006",
+            status=Status.NOT_APPLICABLE,
+            message="No userlists defined in the configuration.",
+            evidence="No 'userlist' sections found.",
+        )
+
+    issues: list[str] = []
+
+    for ul in config.userlists:
+        ul_label = ul.name or "(unnamed)"
+        for user in ul.users:
+            if user.password_type == "insecure-password":
+                issues.append(
+                    f"[{ul_label}] user '{user.name}' uses insecure-password "
+                    f"(cleartext) on line {user.line_number}"
+                )
+            elif user.password_type == "password":
+                if not _CRYPT_HASH_RE.match(user.password_value):
+                    issues.append(
+                        f"[{ul_label}] user '{user.name}' has password value "
+                        f"that does not match crypt hash format on line {user.line_number}"
+                    )
+
+    if issues:
+        return Finding(
+            check_id="HAPR-ACL-006",
+            status=Status.FAIL,
+            message=(
+                "One or more userlist passwords are stored insecurely. "
+                "Use 'password' with a crypt(3) hash (e.g. SHA-512 via mkpasswd) "
+                "instead of 'insecure-password'."
+            ),
+            evidence="; ".join(issues),
+        )
+
+    return Finding(
+        check_id="HAPR-ACL-006",
+        status=Status.PASS,
+        message="All userlist passwords use hashed storage.",
+        evidence=f"Checked {sum(len(ul.users) for ul in config.userlists)} user(s) across {len(config.userlists)} userlist(s).",
     )

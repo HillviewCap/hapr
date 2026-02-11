@@ -364,3 +364,136 @@ defaults
 """)
         finding = check_log_format(config)
         assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-ACL-006: Userlist password check
+# ---------------------------------------------------------------------------
+
+from hapr.framework.checks.access import check_userlist_passwords
+
+
+class TestUserlistPasswordCheck:
+    """Test check_userlist_passwords for cleartext vs hashed detection."""
+
+    def test_no_userlists_returns_na(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = check_userlist_passwords(config)
+        assert finding.status == Status.NOT_APPLICABLE
+
+    def test_insecure_password_returns_fail(self):
+        config = parse_string("""
+userlist myusers
+    user admin insecure-password changeme
+""")
+        finding = check_userlist_passwords(config)
+        assert finding.status == Status.FAIL
+        assert "insecure-password" in finding.evidence
+
+    def test_hashed_password_returns_pass(self):
+        config = parse_string("""
+userlist myusers
+    user admin password $5$salt$hashvalue
+""")
+        finding = check_userlist_passwords(config)
+        assert finding.status == Status.PASS
+
+    def test_sha512_hash_passes(self):
+        config = parse_string("""
+userlist myusers
+    user admin password $6$rounds=5000$saltsalt$longhashvaluehere
+""")
+        finding = check_userlist_passwords(config)
+        assert finding.status == Status.PASS
+
+    def test_bcrypt_hash_passes(self):
+        config = parse_string("""
+userlist myusers
+    user admin password $2b$12$saltsaltsaltsaltsaltsehashhashhashhashhashhashhash
+""")
+        finding = check_userlist_passwords(config)
+        assert finding.status == Status.PASS
+
+    def test_unhashed_password_directive_fails(self):
+        """password directive with plaintext (no crypt prefix) should fail."""
+        config = parse_string("""
+userlist myusers
+    user admin password notahash
+""")
+        finding = check_userlist_passwords(config)
+        assert finding.status == Status.FAIL
+        assert "crypt hash format" in finding.evidence
+
+    def test_mixed_users_fails(self):
+        """If any user is insecure, the whole check fails."""
+        config = parse_string("""
+userlist myusers
+    user admin password $6$salt$hashvalue
+    user guest insecure-password guest123
+""")
+        finding = check_userlist_passwords(config)
+        assert finding.status == Status.FAIL
+        assert "guest" in finding.evidence
+
+    def test_real_world_severalnines_pattern_fails(self):
+        """Typical insecure userlist from real-world configs."""
+        config = parse_string("""
+userlist stats-auth
+    group admin users admin
+    user admin insecure-password admin
+    group readonly users haproxy
+    user haproxy insecure-password haproxy
+""")
+        finding = check_userlist_passwords(config)
+        assert finding.status == Status.FAIL
+        assert "admin" in finding.evidence
+        assert "haproxy" in finding.evidence
+
+
+# ---------------------------------------------------------------------------
+# Socket prefix fix: /tmp/subdir should FAIL, /tmp.safe should PASS
+# ---------------------------------------------------------------------------
+
+class TestStatsSocketPathPrefix:
+    """Test socket path prefix matching in check_stats_socket_permissions."""
+
+    def test_socket_in_tmp_subdir_flagged(self):
+        config = parse_string("""
+global
+    stats socket /tmp/subdir/haproxy.sock mode 660
+""")
+        finding = check_stats_socket_permissions(config)
+        assert finding.status == Status.FAIL
+        assert "/tmp" in finding.evidence
+
+    def test_socket_in_tmp_safe_passes(self):
+        """Path /tmp.safe should NOT match /tmp."""
+        config = parse_string("""
+global
+    stats socket /tmp.safe/haproxy.sock mode 660
+""")
+        finding = check_stats_socket_permissions(config)
+        assert finding.status == Status.PASS
+
+
+# ---------------------------------------------------------------------------
+# Password priority fix: overlapping issues should all be reported
+# ---------------------------------------------------------------------------
+
+class TestStatsPasswordPriority:
+    """Test that overlapping password issues are all reported."""
+
+    def test_admin_admin_reports_both_short_and_common(self):
+        config = parse_string("""
+listen stats
+    bind *:9000
+    stats enable
+    stats auth admin:admin
+""")
+        finding = check_stats_access_restricted(config)
+        assert finding.status == Status.PARTIAL
+        assert "too short" in finding.evidence
+        assert "common weak" in finding.evidence

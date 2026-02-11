@@ -19,11 +19,13 @@ from .models import (
     HAProxyConfig,
     ListenSection,
     ServerLine,
+    UserEntry,
+    Userlist,
 )
 
 # Section header patterns
 _SECTION_RE = re.compile(
-    r"^(global|defaults|frontend|backend|listen)"
+    r"^(global|defaults|frontend|backend|listen|userlist)"
     r"(?:\s+(\S.*))?$"
 )
 
@@ -57,7 +59,7 @@ def parse_string(text: str) -> HAProxyConfig:
 
     current_section: str | None = None
     current_name: str = ""
-    current_obj: GlobalSection | DefaultsSection | Frontend | Backend | ListenSection | None = None
+    current_obj: GlobalSection | DefaultsSection | Frontend | Backend | ListenSection | Userlist | None = None
 
     for line_num, raw_line in enumerate(lines, start=1):
         # Strip comments and whitespace
@@ -93,6 +95,8 @@ def parse_string(text: str) -> HAProxyConfig:
                 current_obj = Backend(name=current_name)
             elif current_section == "listen":
                 current_obj = ListenSection(name=current_name)
+            elif current_section == "userlist":
+                current_obj = Userlist(name=current_name)
             continue
 
         if current_obj is None:
@@ -126,7 +130,7 @@ def _strip_comment(line: str) -> str:
 def _save_section(
     config: HAProxyConfig,
     section_type: str | None,
-    obj: GlobalSection | DefaultsSection | Frontend | Backend | ListenSection | None,
+    obj: GlobalSection | DefaultsSection | Frontend | Backend | ListenSection | Userlist | None,
 ) -> None:
     """Append the completed section object to the config."""
     if obj is None or section_type is None:
@@ -141,10 +145,12 @@ def _save_section(
         config.backends.append(obj)  # type: ignore[arg-type]
     elif section_type == "listen":
         config.listens.append(obj)  # type: ignore[arg-type]
+    elif section_type == "userlist":
+        config.userlists.append(obj)  # type: ignore[arg-type]
 
 
 def _parse_directive(
-    section: GlobalSection | DefaultsSection | Frontend | Backend | ListenSection,
+    section: GlobalSection | DefaultsSection | Frontend | Backend | ListenSection | Userlist,
     line: str,
     line_num: int,
 ) -> None:
@@ -163,6 +169,17 @@ def _parse_directive(
             section.servers.append(
                 _parse_server(sm.group(1), sm.group(2), sm.group(3), line, line_num)
             )
+            return
+
+    # Userlist directives
+    if isinstance(section, Userlist):
+        parts = line.split(None, 1)
+        keyword = parts[0].lower()
+        if keyword == "user" and len(parts) > 1:
+            section.users.append(_parse_userlist_user(parts[1], line_num))
+            return
+        if keyword == "group" and len(parts) > 1:
+            section.groups.append(Directive(keyword="group", args=parts[1], line_number=line_num))
             return
 
     # Generic directive
@@ -300,3 +317,32 @@ def _parse_server(
 
     server.options = options
     return server
+
+
+def _parse_userlist_user(args: str, line_num: int) -> UserEntry:
+    """Parse a userlist ``user`` directive into a UserEntry.
+
+    Format: ``user <name> [password|insecure-password] <value> [groups <g1>,<g2>]``
+    """
+    tokens = args.split()
+    entry = UserEntry(line_number=line_num)
+
+    if not tokens:
+        return entry
+
+    entry.name = tokens[0]
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in ("password", "insecure-password"):
+            entry.password_type = tok
+            if i + 1 < len(tokens):
+                entry.password_value = tokens[i + 1]
+                i += 1
+        elif tok == "groups":
+            if i + 1 < len(tokens):
+                entry.groups = [g.strip() for g in tokens[i + 1].split(",")]
+                i += 1
+        i += 1
+
+    return entry

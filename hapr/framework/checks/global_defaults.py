@@ -7,7 +7,7 @@ import os
 from ...models import Finding, HAProxyConfig, Status
 
 # Directories considered world-writable / insecure for socket placement
-_INSECURE_SOCKET_DIRS = {"/tmp", "/var/tmp", "/dev/shm"}
+_INSECURE_SOCKET_DIRS = ("/tmp", "/var/tmp", "/dev/shm")
 
 
 def check_secure_defaults(config: HAProxyConfig) -> Finding:
@@ -92,7 +92,7 @@ def check_stats_socket_permissions(config: HAProxyConfig) -> Finding:
         if len(tokens) >= 2:
             socket_path = tokens[1]
             socket_dir = os.path.dirname(socket_path)
-            if socket_dir in _INSECURE_SOCKET_DIRS:
+            if any(socket_dir == d or socket_dir.startswith(d + "/") for d in _INSECURE_SOCKET_DIRS):
                 issues.append(
                     f"Stats socket in world-writable directory ({socket_dir}): {args}"
                 )

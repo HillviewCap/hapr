@@ -472,6 +472,36 @@ checks:
         - SRG-APP-000315-WSR-000004
     check_function: access.check_stats_access_restricted
 
+  - id: HAPR-ACL-006
+    title: Userlist Passwords Hashed
+    category: access
+    severity: high
+    weight: 7
+    description: >
+      Verify that userlist passwords use crypt(3)-style hashing rather than
+      the insecure-password directive which stores credentials in cleartext.
+    rationale: >
+      HAProxy userlists support two password storage methods: the password
+      directive (which expects a crypt hash) and insecure-password (which
+      stores plaintext). Cleartext passwords in configuration files are
+      trivially compromised if the file is exposed through backups, version
+      control, or unauthorized filesystem access.
+    remediation: >
+      Replace insecure-password with password and provide a crypt(3) hash.
+      Generate hashes using mkpasswd. Example:
+      mkpasswd -m sha-512 mypassword
+      userlist myusers
+        user admin password $6$rounds=5000$salt$hashedvalue
+    references:
+      nist:
+        - IA-5
+        - IA-5(1)
+      owasp:
+        - A02:2021 Cryptographic Failures
+      stig:
+        - SRG-APP-000171-WSR-000100
+    check_function: access.check_userlist_passwords
+
   # ---------------------------------------------------------------------------
   # HAPR-HDR: HTTP Security Headers
   # ---------------------------------------------------------------------------

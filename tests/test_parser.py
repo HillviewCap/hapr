@@ -236,3 +236,105 @@ class TestParseFile:
     def test_file_not_found(self):
         with pytest.raises(FileNotFoundError):
             parse_file("nonexistent.cfg")
+
+
+class TestUserlistParsing:
+    """Test parsing of HAProxy userlist sections."""
+
+    def test_userlist_section_parsed(self):
+        config = parse_string("""
+userlist myusers
+    user admin insecure-password changeme
+""")
+        assert len(config.userlists) == 1
+        assert config.userlists[0].name == "myusers"
+        assert len(config.userlists[0].users) == 1
+
+    def test_insecure_password_extracted(self):
+        config = parse_string("""
+userlist myusers
+    user admin insecure-password changeme
+""")
+        user = config.userlists[0].users[0]
+        assert user.name == "admin"
+        assert user.password_type == "insecure-password"
+        assert user.password_value == "changeme"
+
+    def test_hashed_password_extracted(self):
+        config = parse_string("""
+userlist myusers
+    user admin password $6$rounds=5000$salt$hashvalue
+""")
+        user = config.userlists[0].users[0]
+        assert user.name == "admin"
+        assert user.password_type == "password"
+        assert user.password_value.startswith("$6$")
+
+    def test_user_with_groups(self):
+        config = parse_string("""
+userlist myusers
+    user admin insecure-password changeme groups admins,operators
+""")
+        user = config.userlists[0].users[0]
+        assert user.groups == ["admins", "operators"]
+
+    def test_multiple_userlists(self):
+        config = parse_string("""
+userlist admins
+    user admin password $5$salt$hashvalue
+
+userlist operators
+    user op1 insecure-password test123
+    user op2 password $6$salt$hashvalue2
+""")
+        assert len(config.userlists) == 2
+        assert config.userlists[0].name == "admins"
+        assert len(config.userlists[0].users) == 1
+        assert config.userlists[1].name == "operators"
+        assert len(config.userlists[1].users) == 2
+
+    def test_empty_userlist(self):
+        config = parse_string("""
+userlist empty_list
+""")
+        assert len(config.userlists) == 1
+        assert config.userlists[0].name == "empty_list"
+        assert len(config.userlists[0].users) == 0
+
+    def test_userlist_between_other_sections(self):
+        config = parse_string("""
+frontend ft_web
+    bind :80
+    default_backend bk_web
+
+userlist myusers
+    user admin insecure-password changeme
+
+backend bk_web
+    server web1 10.0.0.1:8080 check
+""")
+        assert len(config.frontends) == 1
+        assert len(config.userlists) == 1
+        assert len(config.backends) == 1
+        assert config.userlists[0].users[0].name == "admin"
+
+    def test_userlist_group_directive(self):
+        config = parse_string("""
+userlist myusers
+    group admins
+    group operators
+    user admin password $6$salt$hash groups admins
+""")
+        ul = config.userlists[0]
+        assert len(ul.groups) == 2
+        assert ul.groups[0].keyword == "group"
+        assert ul.groups[0].args == "admins"
+
+    def test_userlist_in_all_sections(self):
+        config = parse_string("""
+userlist myusers
+    user admin password $6$salt$hash
+""")
+        assert any(
+            hasattr(s, "users") for s in config.all_sections
+        )

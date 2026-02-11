@@ -180,6 +180,25 @@ class ListenSection:
 
 
 @dataclass
+class UserEntry:
+    """A user defined in a HAProxy userlist section."""
+    name: str = ""
+    password_type: str = ""  # "password" or "insecure-password"
+    password_value: str = ""
+    groups: list[str] = field(default_factory=list)
+    line_number: int = 0
+
+
+@dataclass
+class Userlist:
+    """HAProxy 'userlist' section."""
+    name: str = ""
+    users: list[UserEntry] = field(default_factory=list)
+    groups: list[Directive] = field(default_factory=list)
+    directives: list[Directive] = field(default_factory=list)
+
+
+@dataclass
 class HAProxyConfig:
     """Root container for a parsed HAProxy configuration."""
     file_path: str = ""
@@ -188,6 +207,7 @@ class HAProxyConfig:
     frontends: list[Frontend] = field(default_factory=list)
     backends: list[Backend] = field(default_factory=list)
     listens: list[ListenSection] = field(default_factory=list)
+    userlists: list[Userlist] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -217,12 +237,13 @@ class HAProxyConfig:
         return self.backends + self.listens  # type: ignore[operator]
 
     @property
-    def all_sections(self) -> list[GlobalSection | DefaultsSection | Frontend | Backend | ListenSection]:
+    def all_sections(self) -> list[GlobalSection | DefaultsSection | Frontend | Backend | ListenSection | Userlist]:
         sections: list = [self.global_section]
         sections.extend(self.defaults)
         sections.extend(self.frontends)
         sections.extend(self.backends)
         sections.extend(self.listens)
+        sections.extend(self.userlists)
         return sections
 
     def get_defaults(self) -> DefaultsSection:
