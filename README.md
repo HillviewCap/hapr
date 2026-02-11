@@ -17,7 +17,15 @@ No CIS benchmark or automated security audit tool exists for HAProxy — despite
 ## Installation
 
 ```bash
+# From PyPI
+pip install hapr
+
+# From source (editable, with dev dependencies)
 pip install -e ".[dev]"
+
+# From source with pinned dependencies
+pip install -r requirements.txt
+pip install -e .
 ```
 
 Requires Python 3.10+.
@@ -85,6 +93,8 @@ hapr version-check <version>                   CVE check for a version
 --socket PATH          HAProxy Unix socket for version detection
 --haproxy-bin PATH     HAProxy binary path for version detection
 --stats-url URL        HAProxy stats page URL for version detection
+--log-level LEVEL      Set logging verbosity: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: WARNING)
+--log-file PATH        Write log output to a file
 ```
 
 ## HAPR Security Baseline
@@ -188,6 +198,8 @@ pip install -e ".[dev]"
 # Run tests (225 tests)
 pytest tests/ -v
 ```
+
+CI runs on GitHub Actions across Python 3.10, 3.11, and 3.12.
 
 ### Project Structure
 

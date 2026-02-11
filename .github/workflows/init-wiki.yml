@@ -1,0 +1,41 @@
+name: Publish Wiki
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish-wiki:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main repo
+        uses: actions/checkout@v4
+
+      - name: Prepare wiki content
+        run: |
+          mkdir -p /tmp/wiki-src
+
+          # Create Home.md (wiki landing page)
+          printf '%s\n' \
+            '# HAPR Wiki' \
+            '' \
+            '**HAPR** (HAProxy Audit & Reporting Tool) is a Python CLI that audits HAProxy configurations against a security baseline across 13 categories. It parses configs, scores them, optionally performs live TLS scanning and CVE lookups, generates topology graphs, and produces self-contained HTML reports.' \
+            '' \
+            '## Research Documents' \
+            '' \
+            '- [Advanced Security Features Research](Advanced-Security-Features-Research) — In-depth research on HAProxy advanced security features including SPOE/SPOA, Lua scripting, mTLS, JWT validation, HTTP/2 hardening, and more, organized by assessment tier.' \
+            '- [Gap Assessment Report](Gap-Assessment-Report) — Comprehensive gap assessment of the HAPR security baseline against HAProxy official documentation, DISA STIG, NIST, OWASP, PCI DSS, and other industry frameworks. Includes tiered level definitions, reclassification recommendations, and an implementation roadmap.' \
+            > /tmp/wiki-src/Home.md
+
+          # Copy research documents as wiki pages
+          cp docs/advanced-security-features-research.md /tmp/wiki-src/Advanced-Security-Features-Research.md
+          cp docs/gap-assessment-report.md /tmp/wiki-src/Gap-Assessment-Report.md
+
+          ls -la /tmp/wiki-src/
+
+      - name: Publish wiki
+        uses: spenserblack/actions-wiki@v0.3.0
+        with:
+          path: /tmp/wiki-src
+          token: ${{ secrets.GITHUB_TOKEN }}
