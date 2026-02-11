@@ -1,0 +1,391 @@
+"""TLS/SSL configuration checks for parsed HAProxy config.
+
+These checks examine the static HAProxy configuration for TLS-related
+security settings.  They do NOT perform live scanning --- see ``tls_live``
+for runtime probes.
+"""
+
+from __future__ import annotations
+
+import re
+
+from ...models import Finding, HAProxyConfig, Severity, Status
+
+# Versions considered weak (SSLv3, TLS 1.0, TLS 1.1)
+_WEAK_VERSIONS = {"sslv3", "tlsv1.0", "tlsv10", "tlsv1.1", "tlsv11"}
+
+# Versions considered acceptable (TLS 1.2+)
+_STRONG_VERSIONS = {"tlsv1.2", "tlsv12", "tlsv1.3", "tlsv13"}
+
+# Regex fragments that identify known-weak cipher components
+_WEAK_CIPHER_PATTERNS = re.compile(
+    r"(?:^|[:\+!,\s])"
+    r"(?:DES|3DES|RC4|MD5|NULL|EXPORT|aNULL|eNULL|LOW|DES-CBC3)"
+    r"(?:[:\+!,\s]|$)",
+    re.IGNORECASE,
+)
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-001  Minimum TLS version
+# ---------------------------------------------------------------------------
+
+def check_min_tls_version(config: HAProxyConfig) -> Finding:
+    """Check that the minimum TLS version is 1.2 or higher.
+
+    Inspects:
+      - ``ssl-default-bind-options`` in the global section for ``ssl-min-ver``
+        and for explicit references to weak protocol versions.
+      - Individual ``bind`` lines for ``ssl-min-ver`` options and weak version
+        tokens (``sslv3``, ``tlsv10``, ``tlsv11``).
+
+    Returns PASS if all enforce TLS 1.2+, PARTIAL if some do, FAIL if none do
+    or weak versions are explicitly found.
+    """
+    g = config.global_section
+
+    weak_found: list[str] = []
+    strong_global = False
+    strong_binds: list[str] = []
+    weak_binds: list[str] = []
+
+    # --- Check global ssl-default-bind-options ---
+    bind_opts_directives = g.get("ssl-default-bind-options")
+    for d in bind_opts_directives:
+        tokens = d.args.lower().split()
+        # Look for explicit weak version tokens
+        for tok in tokens:
+            if tok in _WEAK_VERSIONS or tok.lstrip("no-") in _WEAK_VERSIONS:
+                # "no-sslv3" is fine -- it disables the weak version.
+                if tok.startswith("no-"):
+                    continue
+                weak_found.append(f"global ssl-default-bind-options: {tok}")
+
+        # Look for ssl-min-ver
+        for i, tok in enumerate(tokens):
+            if tok == "ssl-min-ver" and i + 1 < len(tokens):
+                ver = tokens[i + 1]
+                if ver in _STRONG_VERSIONS:
+                    strong_global = True
+                else:
+                    weak_found.append(
+                        f"global ssl-default-bind-options ssl-min-ver {ver}"
+                    )
+
+    # --- Check individual bind lines ---
+    for bind in config.all_binds:
+        if not bind.ssl:
+            continue
+        opts_lower = {k.lower(): v.lower() for k, v in bind.options.items()}
+
+        # Check ssl-min-ver on the bind line
+        min_ver = opts_lower.get("ssl-min-ver", "")
+        if min_ver:
+            if min_ver in _STRONG_VERSIONS:
+                strong_binds.append(bind.raw)
+            else:
+                weak_found.append(f"bind {bind.raw}: ssl-min-ver {min_ver}")
+        # Check for raw weak version tokens in options keys
+        for key in opts_lower:
+            if key in _WEAK_VERSIONS:
+                weak_found.append(f"bind {bind.raw}: {key}")
+
+    # --- Determine result ---
+    if weak_found:
+        return Finding(
+            check_id="HAPR-TLS-001",
+            status=Status.FAIL,
+            message="Weak TLS protocol versions found in configuration.",
+            evidence="; ".join(weak_found),
+        )
+
+    if strong_global:
+        return Finding(
+            check_id="HAPR-TLS-001",
+            status=Status.PASS,
+            message="Global ssl-default-bind-options enforces TLS 1.2+ via ssl-min-ver.",
+            evidence=bind_opts_directives[0].args if bind_opts_directives else "",
+        )
+
+    if strong_binds:
+        ssl_binds = [b for b in config.all_binds if b.ssl]
+        if len(strong_binds) == len(ssl_binds):
+            return Finding(
+                check_id="HAPR-TLS-001",
+                status=Status.PASS,
+                message="All SSL bind lines enforce TLS 1.2+ via ssl-min-ver.",
+                evidence="; ".join(strong_binds),
+            )
+        return Finding(
+            check_id="HAPR-TLS-001",
+            status=Status.PARTIAL,
+            message=(
+                f"Only {len(strong_binds)}/{len(ssl_binds)} SSL bind lines "
+                "enforce TLS 1.2+."
+            ),
+            evidence="; ".join(strong_binds),
+        )
+
+    return Finding(
+        check_id="HAPR-TLS-001",
+        status=Status.FAIL,
+        message="No minimum TLS version enforcement found (ssl-min-ver not set).",
+        evidence="not found",
+    )
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-002  Weak ciphers
+# ---------------------------------------------------------------------------
+
+def check_no_weak_ciphers(config: HAProxyConfig) -> Finding:
+    """Check that no weak cipher suites are configured.
+
+    Inspects ``ssl-default-bind-ciphers`` in the global section and any
+    cipher strings on individual bind lines for patterns known to be weak:
+    DES, RC4, MD5, NULL, EXPORT, aNULL, eNULL, LOW.
+
+    Returns PASS if no weak ciphers are found, FAIL if any are present.
+    """
+    g = config.global_section
+    weak_hits: list[str] = []
+
+    # Global default ciphers
+    for d in g.get("ssl-default-bind-ciphers"):
+        matches = _WEAK_CIPHER_PATTERNS.findall(d.args)
+        if matches:
+            weak_hits.append(
+                f"global ssl-default-bind-ciphers: {', '.join(m.strip() for m in matches)}"
+            )
+
+    # Per-bind ciphers
+    for bind in config.all_binds:
+        if not bind.ssl:
+            continue
+        cipher_str = bind.options.get("ciphers", "") or bind.options.get("ssl-default-bind-ciphers", "")
+        if cipher_str:
+            matches = _WEAK_CIPHER_PATTERNS.findall(cipher_str)
+            if matches:
+                weak_hits.append(
+                    f"bind {bind.raw}: {', '.join(m.strip() for m in matches)}"
+                )
+
+    if weak_hits:
+        return Finding(
+            check_id="HAPR-TLS-002",
+            status=Status.FAIL,
+            message="Weak cipher suites detected in TLS configuration.",
+            evidence="; ".join(weak_hits),
+        )
+
+    return Finding(
+        check_id="HAPR-TLS-002",
+        status=Status.PASS,
+        message="No weak cipher suites found in TLS configuration.",
+        evidence="ssl-default-bind-ciphers and bind-level ciphers checked",
+    )
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-003  ssl-default-bind-options present
+# ---------------------------------------------------------------------------
+
+def check_ssl_default_bind_options(config: HAProxyConfig) -> Finding:
+    """Check that the global section contains ``ssl-default-bind-options``.
+
+    This directive centralises TLS settings (min version, curves, etc.) so
+    that every SSL frontend/listen inherits secure defaults.
+
+    Returns PASS if present, FAIL if missing.
+    """
+    if config.global_section.has("ssl-default-bind-options"):
+        value = config.global_section.get_value("ssl-default-bind-options") or ""
+        return Finding(
+            check_id="HAPR-TLS-003",
+            status=Status.PASS,
+            message="Global ssl-default-bind-options directive is present.",
+            evidence=f"ssl-default-bind-options {value}",
+        )
+
+    return Finding(
+        check_id="HAPR-TLS-003",
+        status=Status.FAIL,
+        message="Global ssl-default-bind-options directive is missing.",
+        evidence="not found",
+    )
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-004  ssl-default-bind-ciphers present
+# ---------------------------------------------------------------------------
+
+def check_ssl_default_bind_ciphers(config: HAProxyConfig) -> Finding:
+    """Check that the global section contains ``ssl-default-bind-ciphers``.
+
+    Without an explicit cipher list HAProxy falls back to the OpenSSL
+    default, which may include weak or undesirable ciphers.
+
+    Returns PASS if present, FAIL if missing.
+    """
+    if config.global_section.has("ssl-default-bind-ciphers"):
+        value = config.global_section.get_value("ssl-default-bind-ciphers") or ""
+        return Finding(
+            check_id="HAPR-TLS-004",
+            status=Status.PASS,
+            message="Global ssl-default-bind-ciphers directive is present.",
+            evidence=f"ssl-default-bind-ciphers {value}",
+        )
+
+    return Finding(
+        check_id="HAPR-TLS-004",
+        status=Status.FAIL,
+        message="Global ssl-default-bind-ciphers directive is missing.",
+        evidence="not found",
+    )
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-005  ssl-default-bind-ciphersuites (TLS 1.3)
+# ---------------------------------------------------------------------------
+
+def check_ssl_default_bind_ciphersuites(config: HAProxyConfig) -> Finding:
+    """Check that the global section contains ``ssl-default-bind-ciphersuites``.
+
+    This directive controls which TLS 1.3 cipher suites are allowed.  If it
+    is absent but ``ssl-default-bind-ciphers`` (TLS 1.2) is set, the result
+    is PARTIAL.
+
+    Returns PASS if present, PARTIAL if only TLS 1.2 ciphers are configured,
+    FAIL if neither is present.
+    """
+    has_tls13 = config.global_section.has("ssl-default-bind-ciphersuites")
+    has_tls12 = config.global_section.has("ssl-default-bind-ciphers")
+
+    if has_tls13:
+        value = config.global_section.get_value("ssl-default-bind-ciphersuites") or ""
+        return Finding(
+            check_id="HAPR-TLS-005",
+            status=Status.PASS,
+            message="Global ssl-default-bind-ciphersuites (TLS 1.3) directive is present.",
+            evidence=f"ssl-default-bind-ciphersuites {value}",
+        )
+
+    if has_tls12:
+        value = config.global_section.get_value("ssl-default-bind-ciphers") or ""
+        return Finding(
+            check_id="HAPR-TLS-005",
+            status=Status.PARTIAL,
+            message=(
+                "TLS 1.2 ciphers are configured (ssl-default-bind-ciphers) but "
+                "TLS 1.3 ciphersuites (ssl-default-bind-ciphersuites) are not."
+            ),
+            evidence=f"ssl-default-bind-ciphers {value}",
+        )
+
+    return Finding(
+        check_id="HAPR-TLS-005",
+        status=Status.FAIL,
+        message=(
+            "Neither ssl-default-bind-ciphersuites nor ssl-default-bind-ciphers "
+            "is configured in the global section."
+        ),
+        evidence="not found",
+    )
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-006  HSTS header
+# ---------------------------------------------------------------------------
+
+def check_hsts_configured(config: HAProxyConfig) -> Finding:
+    """Check that a Strict-Transport-Security (HSTS) header is configured.
+
+    Looks for ``http-response set-header Strict-Transport-Security`` in any
+    frontend, listen, or defaults section.
+
+    Returns PASS if found anywhere, FAIL if not.
+    """
+    hsts_pattern = re.compile(
+        r"^Strict-Transport-Security\b", re.IGNORECASE
+    )
+
+    # Check frontends, listens, and defaults
+    sections_to_check = (
+        list(config.frontends)
+        + list(config.listens)
+        + list(config.defaults)
+    )
+
+    for section in sections_to_check:
+        for d in section.get("http-response"):
+            # Typical form: "set-header Strict-Transport-Security ..."
+            if d.args.startswith("set-header "):
+                header_rest = d.args[len("set-header "):]
+                if hsts_pattern.match(header_rest):
+                    section_name = getattr(section, "name", "defaults")
+                    return Finding(
+                        check_id="HAPR-TLS-006",
+                        status=Status.PASS,
+                        message=(
+                            f"HSTS header is configured in section '{section_name}'."
+                        ),
+                        evidence=f"http-response {d.args}",
+                    )
+
+    return Finding(
+        check_id="HAPR-TLS-006",
+        status=Status.FAIL,
+        message=(
+            "No Strict-Transport-Security (HSTS) header found in any "
+            "frontend, listen, or defaults section."
+        ),
+        evidence="not found",
+    )
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-007  DH parameter size
+# ---------------------------------------------------------------------------
+
+def check_dh_param_size(config: HAProxyConfig) -> Finding:
+    """Check that ``tune.ssl.default-dh-param`` is set to >= 2048 in global.
+
+    A small DH parameter size makes the server vulnerable to Logjam-style
+    attacks.  The recommended minimum is 2048 bits.
+
+    Returns PASS if >= 2048, PARTIAL if set but < 2048, FAIL if not set.
+    """
+    value = config.global_section.get_value("tune.ssl.default-dh-param")
+
+    if value is None:
+        return Finding(
+            check_id="HAPR-TLS-007",
+            status=Status.FAIL,
+            message="tune.ssl.default-dh-param is not set in the global section.",
+            evidence="not found",
+        )
+
+    try:
+        size = int(value.strip())
+    except (ValueError, TypeError):
+        return Finding(
+            check_id="HAPR-TLS-007",
+            status=Status.FAIL,
+            message=f"tune.ssl.default-dh-param has non-integer value: {value!r}.",
+            evidence=f"tune.ssl.default-dh-param {value}",
+        )
+
+    if size >= 2048:
+        return Finding(
+            check_id="HAPR-TLS-007",
+            status=Status.PASS,
+            message=f"DH parameter size is {size} bits (>= 2048).",
+            evidence=f"tune.ssl.default-dh-param {size}",
+        )
+
+    return Finding(
+        check_id="HAPR-TLS-007",
+        status=Status.PARTIAL,
+        message=f"DH parameter size is {size} bits, which is below the recommended 2048.",
+        evidence=f"tune.ssl.default-dh-param {size}",
+    )

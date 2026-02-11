@@ -1,0 +1,272 @@
+"""Request handling security checks for HAProxy configurations.
+
+Checks cover request body size limits, URL length restrictions,
+HTTP method filtering, and request header size tuning.
+"""
+
+from __future__ import annotations
+
+from ...models import HAProxyConfig, Finding, Status
+
+
+def check_max_body_size(config: HAProxyConfig) -> Finding:
+    """HAPR-REQ-001: Check for request body size limits.
+
+    Verifies that the configuration restricts the maximum request body size
+    to prevent denial-of-service attacks via oversized payloads.  Looks for:
+
+    * ``http-request deny if { req.body_size gt ...}`` rules in
+      frontends, backends, or listen sections.
+    * ``option http-buffer-request`` combined with ``tune.bufsize`` in
+      global, which together impose an implicit body size cap.
+    * ``tune.bufsize`` alone in global (provides a buffer ceiling).
+
+    Returns a PASS finding when at least one body size limiting mechanism is
+    detected, otherwise FAIL.
+    """
+    evidence_parts: list[str] = []
+
+    # Check for explicit body size deny rules in proxy sections
+    for section in config.all_frontends_and_listens + config.backends:
+        section_name = getattr(section, "name", "unnamed")
+        for directive in section.get("http-request"):
+            if "req.body_size" in directive.args and "deny" in directive.args:
+                evidence_parts.append(
+                    f"Body size deny rule in '{section_name}': "
+                    f"http-request {directive.args}"
+                )
+
+    # Check for option http-buffer-request (works with tune.bufsize)
+    http_buffer_sections: list[str] = []
+    for section in config.all_frontends_and_listens + config.backends:
+        section_name = getattr(section, "name", "unnamed")
+        if section.has("option"):
+            for opt in section.get("option"):
+                if "http-buffer-request" in opt.args:
+                    http_buffer_sections.append(section_name)
+
+    for section in config.defaults:
+        if section.has("option"):
+            for opt in section.get("option"):
+                if "http-buffer-request" in opt.args:
+                    http_buffer_sections.append(f"defaults({section.name or 'unnamed'})")
+
+    # Check for tune.bufsize in global
+    tune_bufsize = config.global_section.get_value("tune.bufsize")
+    if tune_bufsize:
+        evidence_parts.append(f"Global tune.bufsize set to {tune_bufsize}")
+        if http_buffer_sections:
+            evidence_parts.append(
+                f"option http-buffer-request enabled in: "
+                f"{', '.join(http_buffer_sections)}"
+            )
+
+    if evidence_parts:
+        return Finding(
+            check_id="HAPR-REQ-001",
+            status=Status.PASS,
+            message="Request body size limits are configured.",
+            evidence="; ".join(evidence_parts),
+        )
+
+    return Finding(
+        check_id="HAPR-REQ-001",
+        status=Status.FAIL,
+        message=(
+            "No request body size limits found. Consider adding "
+            "'http-request deny if { req.body_size gt <size> }' rules "
+            "or using 'option http-buffer-request' with 'tune.bufsize' "
+            "to limit request body sizes."
+        ),
+        evidence="No body size deny rules, tune.bufsize, or http-buffer-request directives detected.",
+    )
+
+
+def check_url_length_limits(config: HAProxyConfig) -> Finding:
+    """HAPR-REQ-002: Check for URL length restrictions.
+
+    Oversized URLs can be used for buffer overflow attacks or to exploit
+    parser vulnerabilities.  This check looks for:
+
+    * ``http-request deny if { url_len gt ...}`` rules.
+    * ``http-request deny if { path_len gt ...}`` rules.
+    * ``tune.maxrewrite`` in the global section.
+
+    Returns PASS if any URL/path length restriction is found, FAIL otherwise.
+    """
+    evidence_parts: list[str] = []
+
+    # Check proxy sections for url_len / path_len deny rules
+    for section in config.all_frontends_and_listens + config.backends:
+        section_name = getattr(section, "name", "unnamed")
+        for directive in section.get("http-request"):
+            args_lower = directive.args.lower()
+            if "deny" in args_lower and (
+                "url_len" in args_lower or "path_len" in args_lower
+            ):
+                evidence_parts.append(
+                    f"URL/path length deny rule in '{section_name}': "
+                    f"http-request {directive.args}"
+                )
+
+    # Also check defaults
+    for section in config.defaults:
+        for directive in section.get("http-request"):
+            args_lower = directive.args.lower()
+            if "deny" in args_lower and (
+                "url_len" in args_lower or "path_len" in args_lower
+            ):
+                evidence_parts.append(
+                    f"URL/path length deny rule in defaults "
+                    f"'{section.name or 'unnamed'}': http-request {directive.args}"
+                )
+
+    # Check for tune.maxrewrite in global
+    tune_maxrewrite = config.global_section.get_value("tune.maxrewrite")
+    if tune_maxrewrite:
+        evidence_parts.append(f"Global tune.maxrewrite set to {tune_maxrewrite}")
+
+    if evidence_parts:
+        return Finding(
+            check_id="HAPR-REQ-002",
+            status=Status.PASS,
+            message="URL length restrictions are configured.",
+            evidence="; ".join(evidence_parts),
+        )
+
+    return Finding(
+        check_id="HAPR-REQ-002",
+        status=Status.FAIL,
+        message=(
+            "No URL length restrictions found. Consider adding "
+            "'http-request deny if { url_len gt <limit> }' or "
+            "'http-request deny if { path_len gt <limit> }' rules, or "
+            "setting 'tune.maxrewrite' in the global section."
+        ),
+        evidence="No url_len, path_len deny rules, or tune.maxrewrite directive detected.",
+    )
+
+
+def check_method_filtering(config: HAProxyConfig) -> Finding:
+    """HAPR-REQ-003: Check for HTTP method restrictions.
+
+    Allowing arbitrary HTTP methods can widen the attack surface.  This
+    check verifies that the configuration restricts which methods are
+    accepted.  It searches for:
+
+    * ``http-request deny`` rules that reference ``method`` (e.g.
+      ``http-request deny if !{ method GET } !{ method POST } !{ method HEAD }``).
+    * ACL definitions that reference ``method`` combined with deny rules.
+
+    Returns PASS if HTTP method filtering is found, FAIL otherwise.
+    """
+    evidence_parts: list[str] = []
+
+    all_sections = (
+        list(config.all_frontends_and_listens)
+        + list(config.backends)
+        + list(config.defaults)
+    )
+
+    for section in all_sections:
+        section_name = getattr(section, "name", "unnamed")
+
+        # Check for http-request deny rules that reference method
+        for directive in section.get("http-request"):
+            if "method" in directive.args.lower() and "deny" in directive.args.lower():
+                evidence_parts.append(
+                    f"Method filtering rule in '{section_name}': "
+                    f"http-request {directive.args}"
+                )
+
+        # Check for ACL definitions referencing method
+        acl_has_method = False
+        method_acl_names: list[str] = []
+        for directive in section.get("acl"):
+            if "method" in directive.args.lower():
+                acl_has_method = True
+                # The ACL name is the first token in the args
+                acl_name = directive.args.split()[0] if directive.args else ""
+                if acl_name:
+                    method_acl_names.append(acl_name)
+
+        # If there are method ACLs, check if they are used in deny rules
+        if acl_has_method:
+            for directive in section.get("http-request"):
+                args_lower = directive.args.lower()
+                if "deny" in args_lower:
+                    for acl_name in method_acl_names:
+                        if acl_name.lower() in args_lower:
+                            evidence_parts.append(
+                                f"Method ACL '{acl_name}' used in deny rule "
+                                f"in '{section_name}': http-request {directive.args}"
+                            )
+
+    if evidence_parts:
+        return Finding(
+            check_id="HAPR-REQ-003",
+            status=Status.PASS,
+            message="HTTP method filtering is configured.",
+            evidence="; ".join(evidence_parts),
+        )
+
+    return Finding(
+        check_id="HAPR-REQ-003",
+        status=Status.FAIL,
+        message=(
+            "No HTTP method filtering found. Consider restricting allowed "
+            "methods with rules like 'http-request deny if !{ method GET } "
+            "!{ method POST } !{ method HEAD }' to reduce the attack surface."
+        ),
+        evidence="No method-based deny rules or method ACLs with deny actions detected.",
+    )
+
+
+def check_request_header_limits(config: HAProxyConfig) -> Finding:
+    """HAPR-REQ-004: Check for request header size tuning.
+
+    Without explicit header size tuning, HAProxy uses default buffer sizes
+    that may be too generous and allow oversized headers.  This check looks
+    for the following global tuning parameters:
+
+    * ``tune.maxrewrite`` -- controls the amount of buffer space reserved
+      for header rewriting.
+    * ``tune.bufsize`` -- sets the global buffer size, which constrains
+      the total size of request/response headers and body.
+    * ``tune.http.maxhdr`` -- limits the number of headers in a request.
+
+    Returns PASS if any header size tuning parameter is found, FAIL otherwise.
+    """
+    evidence_parts: list[str] = []
+
+    tune_maxrewrite = config.global_section.get_value("tune.maxrewrite")
+    if tune_maxrewrite:
+        evidence_parts.append(f"tune.maxrewrite = {tune_maxrewrite}")
+
+    tune_bufsize = config.global_section.get_value("tune.bufsize")
+    if tune_bufsize:
+        evidence_parts.append(f"tune.bufsize = {tune_bufsize}")
+
+    tune_http_maxhdr = config.global_section.get_value("tune.http.maxhdr")
+    if tune_http_maxhdr:
+        evidence_parts.append(f"tune.http.maxhdr = {tune_http_maxhdr}")
+
+    if evidence_parts:
+        return Finding(
+            check_id="HAPR-REQ-004",
+            status=Status.PASS,
+            message="Request header size tuning is configured in the global section.",
+            evidence="Global settings: " + ", ".join(evidence_parts),
+        )
+
+    return Finding(
+        check_id="HAPR-REQ-004",
+        status=Status.FAIL,
+        message=(
+            "No request header size tuning found in the global section. "
+            "Consider setting 'tune.maxrewrite', 'tune.bufsize', or "
+            "'tune.http.maxhdr' to limit header sizes and mitigate "
+            "oversized-header attacks."
+        ),
+        evidence="No tune.maxrewrite, tune.bufsize, or tune.http.maxhdr directives found in global.",
+    )

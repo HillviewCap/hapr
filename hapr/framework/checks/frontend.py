@@ -1,0 +1,416 @@
+"""Frontend security checks for HAProxy configurations.
+
+Examines connection limits, HTTP-to-HTTPS redirection, WAF
+integration, and application-layer attack protections (SQLi, XSS).
+"""
+
+from __future__ import annotations
+
+import re
+
+from ...models import HAProxyConfig, Finding, Status
+
+
+def check_frontend_connection_limits(config: HAProxyConfig) -> Finding:
+    """HAPR-FRT-001: Check for connection rate limiting on frontends.
+
+    Frontends should have ``rate-limit sessions`` or ``maxconn`` with a
+    reasonable value to prevent a single source from exhausting
+    connection capacity.
+
+    Returns PASS if connection limits are found in frontends or listens,
+    FAIL if not.
+    """
+    sections = config.all_frontends_and_listens
+    if not sections:
+        return Finding(
+            check_id="HAPR-FRT-001",
+            status=Status.NOT_APPLICABLE,
+            message="No frontend or listen sections found.",
+            evidence="Configuration contains no frontends or listens to evaluate.",
+        )
+
+    evidence_lines: list[str] = []
+
+    for section in sections:
+        section_label = section.name or "(unnamed)"
+
+        # Check for rate-limit sessions
+        for directive in section.directives:
+            combined = f"{directive.keyword} {directive.args}".strip().lower()
+            if combined.startswith("rate-limit sessions"):
+                evidence_lines.append(
+                    f"[{section_label}] rate-limit sessions {directive.args} "
+                    f"(line {directive.line_number})"
+                )
+
+        # Check for maxconn directive
+        if section.has("maxconn"):
+            value = section.get_value("maxconn")
+            evidence_lines.append(
+                f"[{section_label}] maxconn {value}"
+            )
+
+    if evidence_lines:
+        return Finding(
+            check_id="HAPR-FRT-001",
+            status=Status.PASS,
+            message="Frontend connection limits are configured.",
+            evidence="\n".join(evidence_lines),
+        )
+
+    return Finding(
+        check_id="HAPR-FRT-001",
+        status=Status.FAIL,
+        message=(
+            "No connection rate limits found on frontends. "
+            "Add 'rate-limit sessions' or 'maxconn' to frontend sections "
+            "to prevent connection exhaustion."
+        ),
+        evidence="Searched all frontend and listen sections for rate-limit/maxconn; none found.",
+    )
+
+
+def check_maxconn_set(config: HAProxyConfig) -> Finding:
+    """HAPR-FRT-002: Check that maxconn is set in frontends or globally.
+
+    Without a ``maxconn`` setting, HAProxy may accept unlimited
+    connections and exhaust system resources.  It should be set in
+    the global section or in individual frontends.
+
+    Returns PASS if ``maxconn`` is found, FAIL if not.
+    """
+    evidence_lines: list[str] = []
+
+    # Check global section
+    if config.global_section.has("maxconn"):
+        value = config.global_section.get_value("maxconn")
+        evidence_lines.append(f"[global] maxconn {value}")
+
+    # Check frontends
+    for fe in config.frontends:
+        fe_label = fe.name or "(unnamed)"
+        if fe.has("maxconn"):
+            value = fe.get_value("maxconn")
+            evidence_lines.append(f"[{fe_label}] maxconn {value}")
+
+    # Check listens
+    for ls in config.listens:
+        ls_label = ls.name or "(unnamed)"
+        if ls.has("maxconn"):
+            value = ls.get_value("maxconn")
+            evidence_lines.append(f"[{ls_label}] maxconn {value}")
+
+    if evidence_lines:
+        return Finding(
+            check_id="HAPR-FRT-002",
+            status=Status.PASS,
+            message="maxconn is configured globally or in frontend sections.",
+            evidence="\n".join(evidence_lines),
+        )
+
+    return Finding(
+        check_id="HAPR-FRT-002",
+        status=Status.FAIL,
+        message=(
+            "maxconn is not set in the global section or any frontend. "
+            "Set 'maxconn' to limit the total number of concurrent connections "
+            "and prevent resource exhaustion."
+        ),
+        evidence="Searched global, frontend, and listen sections for maxconn; not found.",
+    )
+
+
+def check_http_to_https_redirect(config: HAProxyConfig) -> Finding:
+    """HAPR-FRT-003: Check for HTTP to HTTPS redirect on port 80 frontends.
+
+    Frontends that bind on port 80 should redirect clients to HTTPS to
+    ensure all traffic is encrypted.  This check looks for
+    ``redirect scheme https`` or ``http-request redirect scheme https``
+    directives in port-80 frontends.
+
+    Returns PASS if a redirect is found for all port-80 frontends, N/A
+    if no frontends bind on port 80, and FAIL if a port-80 frontend
+    exists without a redirect.
+    """
+    port_80_sections: list[str] = []
+    redirected_sections: list[str] = []
+    non_redirected_sections: list[str] = []
+    evidence_lines: list[str] = []
+
+    for section in config.all_frontends_and_listens:
+        section_label = section.name or "(unnamed)"
+
+        # Determine if this section binds on port 80
+        binds_port_80 = False
+        for bind in section.binds:
+            if bind.port == 80:
+                binds_port_80 = True
+                break
+
+        if not binds_port_80:
+            continue
+
+        port_80_sections.append(section_label)
+
+        # Look for redirect directives
+        has_redirect = False
+        for directive in section.directives:
+            keyword = directive.keyword.lower()
+            args_lower = directive.args.lower()
+
+            # 'redirect scheme https' as a standalone directive
+            if keyword == "redirect" and "scheme https" in args_lower:
+                has_redirect = True
+                evidence_lines.append(
+                    f"[{section_label}] redirect {directive.args} "
+                    f"(line {directive.line_number})"
+                )
+                break
+
+            # 'http-request redirect scheme https'
+            if keyword == "http-request" and "redirect" in args_lower and "scheme https" in args_lower:
+                has_redirect = True
+                evidence_lines.append(
+                    f"[{section_label}] http-request {directive.args} "
+                    f"(line {directive.line_number})"
+                )
+                break
+
+        if has_redirect:
+            redirected_sections.append(section_label)
+        else:
+            non_redirected_sections.append(section_label)
+
+    if not port_80_sections:
+        return Finding(
+            check_id="HAPR-FRT-003",
+            status=Status.NOT_APPLICABLE,
+            message="No frontends bind on port 80; HTTP-to-HTTPS redirect not applicable.",
+            evidence="No bind directives with port 80 found in any frontend or listen section.",
+        )
+
+    if non_redirected_sections:
+        return Finding(
+            check_id="HAPR-FRT-003",
+            status=Status.FAIL,
+            message=(
+                "Port 80 frontends found without HTTP-to-HTTPS redirect. "
+                "Add 'redirect scheme https code 301' or "
+                "'http-request redirect scheme https' to force encrypted connections."
+            ),
+            evidence=(
+                f"Port 80 sections without redirect: {', '.join(non_redirected_sections)}"
+                + (f"\nRedirected: {', '.join(redirected_sections)}" if redirected_sections else "")
+            ),
+        )
+
+    return Finding(
+        check_id="HAPR-FRT-003",
+        status=Status.PASS,
+        message="All port 80 frontends redirect HTTP traffic to HTTPS.",
+        evidence="\n".join(evidence_lines),
+    )
+
+
+def check_waf_integration(config: HAProxyConfig) -> Finding:
+    """HAPR-FRT-004: Check for Web Application Firewall (WAF) integration.
+
+    Looks for indicators of WAF integration such as ``filter spoe``
+    (ModSecurity via SPOE), ``spoe-message`` directives, references to
+    modsecurity in configuration values, or HAProxy Enterprise WAF
+    directives.
+
+    Returns PASS if WAF indicators are detected, FAIL if not.  Note that
+    many configurations will not include a WAF; this check is primarily
+    informational.
+    """
+    waf_re = re.compile(
+        r"modsecurity|filter\s+spoe|spoe-message|spoe-agent|waf",
+        re.IGNORECASE,
+    )
+    evidence_lines: list[str] = []
+
+    all_sections = (
+        list(config.frontends)
+        + list(config.backends)
+        + list(config.listens)
+    )
+
+    for section in all_sections:
+        section_label = section.name or "(unnamed)"
+
+        for directive in section.directives:
+            combined = f"{directive.keyword} {directive.args}"
+            if waf_re.search(combined):
+                evidence_lines.append(
+                    f"[{section_label}] {directive.keyword} {directive.args} "
+                    f"(line {directive.line_number})"
+                )
+
+    if evidence_lines:
+        return Finding(
+            check_id="HAPR-FRT-004",
+            status=Status.PASS,
+            message="WAF integration indicators detected in the configuration.",
+            evidence="\n".join(evidence_lines),
+        )
+
+    return Finding(
+        check_id="HAPR-FRT-004",
+        status=Status.FAIL,
+        message=(
+            "No WAF integration detected. Consider integrating a Web "
+            "Application Firewall (e.g. ModSecurity via SPOE) for "
+            "application-layer attack protection."
+        ),
+        evidence=(
+            "Searched all sections for filter spoe, spoe-message, modsecurity, "
+            "and WAF-related directives; none found."
+        ),
+    )
+
+
+def check_sql_injection_protection(config: HAProxyConfig) -> Finding:
+    """HAPR-FRT-005: Check for SQL injection protection rules.
+
+    Looks for ``http-request deny`` rules that match common SQL injection
+    patterns (SELECT, UNION, INSERT, DROP, DELETE, UPDATE, ALTER, etc.)
+    in URL or query parameters.  These rules provide a basic layer of
+    defence against SQL injection attacks at the load-balancer level.
+
+    Returns PASS if SQL injection deny rules are found, FAIL if not.
+    """
+    sqli_re = re.compile(
+        r"(select|union|insert|drop|delete|update|alter|exec|execute|xp_)",
+        re.IGNORECASE,
+    )
+    evidence_lines: list[str] = []
+
+    for section in config.all_frontends_and_listens:
+        section_label = section.name or "(unnamed)"
+
+        for directive in section.directives:
+            keyword = directive.keyword.lower()
+            args_lower = directive.args.lower()
+
+            # Look for http-request deny rules with SQL patterns
+            if keyword == "http-request" and "deny" in args_lower:
+                if sqli_re.search(directive.args):
+                    evidence_lines.append(
+                        f"[{section_label}] http-request {directive.args} "
+                        f"(line {directive.line_number})"
+                    )
+
+            # Also check ACLs that reference SQL patterns (used with deny)
+            if keyword == "acl" and sqli_re.search(directive.args):
+                # Verify there is a corresponding deny rule using this ACL
+                acl_name_match = re.match(r"(\S+)", directive.args)
+                if acl_name_match:
+                    acl_name = acl_name_match.group(1)
+                    for other in section.directives:
+                        if (
+                            other.keyword.lower() == "http-request"
+                            and "deny" in other.args.lower()
+                            and acl_name in other.args
+                        ):
+                            evidence_lines.append(
+                                f"[{section_label}] acl {directive.args} "
+                                f"(line {directive.line_number}) "
+                                f"with deny rule at line {other.line_number}"
+                            )
+                            break
+
+    if evidence_lines:
+        return Finding(
+            check_id="HAPR-FRT-005",
+            status=Status.PASS,
+            message="SQL injection protection rules detected in the configuration.",
+            evidence="\n".join(evidence_lines),
+        )
+
+    return Finding(
+        check_id="HAPR-FRT-005",
+        status=Status.FAIL,
+        message=(
+            "No SQL injection protection rules found. Consider adding "
+            "'http-request deny' rules that match common SQL injection "
+            "patterns (SELECT, UNION, DROP, etc.) in URL and query parameters."
+        ),
+        evidence=(
+            "Searched all frontend and listen sections for http-request deny "
+            "rules with SQL injection patterns; none found."
+        ),
+    )
+
+
+def check_xss_protection(config: HAProxyConfig) -> Finding:
+    """HAPR-FRT-006: Check for XSS (Cross-Site Scripting) protection rules.
+
+    Looks for ``http-request deny`` rules that match common XSS patterns
+    such as ``<script``, ``javascript:``, ``onerror=``, ``onload=``,
+    ``eval(``, etc. in request parameters.  These rules add a basic
+    defence layer against reflected XSS at the load-balancer level.
+
+    Returns PASS if XSS deny rules are found, FAIL if not.
+    """
+    xss_re = re.compile(
+        r"(<script|javascript:|onerror|onload|onclick|onfocus|onmouseover|eval\(|alert\(|document\.|\.cookie)",
+        re.IGNORECASE,
+    )
+    evidence_lines: list[str] = []
+
+    for section in config.all_frontends_and_listens:
+        section_label = section.name or "(unnamed)"
+
+        for directive in section.directives:
+            keyword = directive.keyword.lower()
+            args_lower = directive.args.lower()
+
+            # Look for http-request deny rules with XSS patterns
+            if keyword == "http-request" and "deny" in args_lower:
+                if xss_re.search(directive.args):
+                    evidence_lines.append(
+                        f"[{section_label}] http-request {directive.args} "
+                        f"(line {directive.line_number})"
+                    )
+
+            # Also check ACLs that reference XSS patterns (used with deny)
+            if keyword == "acl" and xss_re.search(directive.args):
+                acl_name_match = re.match(r"(\S+)", directive.args)
+                if acl_name_match:
+                    acl_name = acl_name_match.group(1)
+                    for other in section.directives:
+                        if (
+                            other.keyword.lower() == "http-request"
+                            and "deny" in other.args.lower()
+                            and acl_name in other.args
+                        ):
+                            evidence_lines.append(
+                                f"[{section_label}] acl {directive.args} "
+                                f"(line {directive.line_number}) "
+                                f"with deny rule at line {other.line_number}"
+                            )
+                            break
+
+    if evidence_lines:
+        return Finding(
+            check_id="HAPR-FRT-006",
+            status=Status.PASS,
+            message="XSS protection rules detected in the configuration.",
+            evidence="\n".join(evidence_lines),
+        )
+
+    return Finding(
+        check_id="HAPR-FRT-006",
+        status=Status.FAIL,
+        message=(
+            "No XSS protection rules found. Consider adding "
+            "'http-request deny' rules that match common XSS patterns "
+            "(<script, javascript:, onerror=, etc.) in request parameters."
+        ),
+        evidence=(
+            "Searched all frontend and listen sections for http-request deny "
+            "rules with XSS patterns; none found."
+        ),
+    )

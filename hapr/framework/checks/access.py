@@ -1,0 +1,299 @@
+"""Access control checks for HAProxy configurations.
+
+Examines ACL definitions, admin path restrictions, rate limiting,
+stick-table usage, and stats endpoint security.
+"""
+
+from __future__ import annotations
+
+import re
+
+from ...models import HAProxyConfig, Finding, Status
+
+
+def check_acls_defined(config: HAProxyConfig) -> Finding:
+    """HAPR-ACL-001: Check that at least some frontends or listens have ACL directives.
+
+    ACLs are the primary mechanism in HAProxy for making routing and access
+    decisions.  A configuration with no ACLs at all typically indicates that
+    no traffic-level access control is in place.
+
+    Returns PASS if any frontend or listen section contains at least one ``acl``
+    directive.  Returns FAIL if no ACLs are found anywhere.
+    """
+    sections_with_acls: list[str] = []
+
+    for section in config.all_frontends_and_listens:
+        if section.acls:
+            sections_with_acls.append(section.name or "(unnamed)")
+
+    if sections_with_acls:
+        return Finding(
+            check_id="HAPR-ACL-001",
+            status=Status.PASS,
+            message="ACL directives are defined in one or more frontends/listens.",
+            evidence=f"Sections with ACLs: {', '.join(sections_with_acls)}",
+        )
+
+    return Finding(
+        check_id="HAPR-ACL-001",
+        status=Status.FAIL,
+        message="No ACL directives found in any frontend or listen section.",
+        evidence="Searched all frontend and listen sections; none contain 'acl' directives.",
+    )
+
+
+def check_admin_path_restricted(config: HAProxyConfig) -> Finding:
+    """HAPR-ACL-002: Check for restrictions on common admin paths.
+
+    Looks for ACL rules or ``http-request deny`` directives that reference
+    well-known administrative paths such as ``/admin``, ``/manager``,
+    ``/console``, ``/wp-admin``, ``/phpmyadmin``, and similar.
+
+    Returns PASS if at least one such restriction is detected.
+    Returns FAIL if no admin path protection is found.
+    """
+    admin_patterns = [
+        r"/admin",
+        r"/manager",
+        r"/console",
+        r"/wp-admin",
+        r"/phpmyadmin",
+        r"/wp-login",
+        r"/cgi-bin",
+        r"/actuator",
+        r"/solr",
+    ]
+    # Build a single regex that matches any of the admin path fragments
+    combined_re = re.compile(
+        "|".join(re.escape(p) for p in admin_patterns), re.IGNORECASE
+    )
+
+    evidence_lines: list[str] = []
+
+    for section in config.all_frontends_and_listens:
+        section_label = section.name or "(unnamed)"
+
+        # Check ACL args for admin path references
+        for acl in section.acls:
+            if combined_re.search(acl.args):
+                evidence_lines.append(
+                    f"[{section_label}] acl {acl.args} (line {acl.line_number})"
+                )
+
+        # Check http-request deny rules for admin path references
+        for directive in section.get("http-request"):
+            args_lower = directive.args.lower()
+            if "deny" in args_lower and combined_re.search(directive.args):
+                evidence_lines.append(
+                    f"[{section_label}] http-request {directive.args} (line {directive.line_number})"
+                )
+
+    if evidence_lines:
+        return Finding(
+            check_id="HAPR-ACL-002",
+            status=Status.PASS,
+            message="Admin path restrictions detected in the configuration.",
+            evidence="\n".join(evidence_lines),
+        )
+
+    return Finding(
+        check_id="HAPR-ACL-002",
+        status=Status.FAIL,
+        message=(
+            "No restrictions on common admin paths detected. "
+            "Paths like /admin, /manager, /wp-admin, and /phpmyadmin "
+            "should be restricted or denied."
+        ),
+        evidence="Searched all frontend and listen sections for admin path ACLs or deny rules.",
+    )
+
+
+def check_rate_limiting(config: HAProxyConfig) -> Finding:
+    """HAPR-ACL-003: Check for rate-limiting mechanisms.
+
+    Looks for evidence of rate limiting via:
+    - ``stick-table`` directives combined with ``http-request track-sc`` or
+      ``tcp-request content track-sc``
+    - ``http-request deny`` rules referencing ``sc_`` sample fetches
+      (e.g. ``sc_http_req_rate``, ``sc0_get_gpc0``)
+
+    Returns PASS if rate limiting is detected, FAIL otherwise.
+    """
+    evidence_lines: list[str] = []
+
+    all_sections = (
+        list(config.frontends)
+        + list(config.backends)
+        + list(config.listens)
+    )
+
+    for section in all_sections:
+        section_label = section.name or "(unnamed)"
+
+        for directive in section.directives:
+            keyword = directive.keyword.lower()
+            args_lower = directive.args.lower()
+
+            # http-request track-sc0/1/2 ...
+            if keyword == "http-request" and "track-sc" in args_lower:
+                evidence_lines.append(
+                    f"[{section_label}] http-request {directive.args} (line {directive.line_number})"
+                )
+
+            # tcp-request content track-sc0/1/2 ...
+            if keyword == "tcp-request" and "track-sc" in args_lower:
+                evidence_lines.append(
+                    f"[{section_label}] tcp-request {directive.args} (line {directive.line_number})"
+                )
+
+            # http-request deny ... sc_ condition (rate-limit enforcement)
+            if keyword == "http-request" and "deny" in args_lower and "sc_" in args_lower:
+                evidence_lines.append(
+                    f"[{section_label}] http-request {directive.args} (line {directive.line_number})"
+                )
+
+    if evidence_lines:
+        return Finding(
+            check_id="HAPR-ACL-003",
+            status=Status.PASS,
+            message="Rate limiting directives detected in the configuration.",
+            evidence="\n".join(evidence_lines),
+        )
+
+    return Finding(
+        check_id="HAPR-ACL-003",
+        status=Status.FAIL,
+        message=(
+            "No rate limiting detected. Consider using stick-tables with "
+            "http-request track-sc and deny rules to limit abusive traffic."
+        ),
+        evidence="Searched all sections for track-sc and sc_ deny rules; none found.",
+    )
+
+
+def check_stick_tables(config: HAProxyConfig) -> Finding:
+    """HAPR-ACL-004: Check for stick-table directives.
+
+    Stick-tables provide in-memory tracking for connection rates, error rates,
+    and session persistence.  They are a prerequisite for rate limiting and
+    abuse detection.
+
+    Returns PASS if at least one ``stick-table`` directive is found in any
+    frontend, backend, or listen section.  Returns FAIL if none are found.
+    """
+    evidence_lines: list[str] = []
+
+    all_sections = (
+        list(config.frontends)
+        + list(config.backends)
+        + list(config.listens)
+    )
+
+    for section in all_sections:
+        section_label = section.name or "(unnamed)"
+        for directive in section.get("stick-table"):
+            evidence_lines.append(
+                f"[{section_label}] stick-table {directive.args} (line {directive.line_number})"
+            )
+
+    if evidence_lines:
+        return Finding(
+            check_id="HAPR-ACL-004",
+            status=Status.PASS,
+            message="Stick-table directives found in the configuration.",
+            evidence="\n".join(evidence_lines),
+        )
+
+    return Finding(
+        check_id="HAPR-ACL-004",
+        status=Status.FAIL,
+        message=(
+            "No stick-table directives found. Stick-tables are required for "
+            "connection tracking, rate limiting, and abuse detection."
+        ),
+        evidence="Searched all frontend, backend, and listen sections; no stick-table directives found.",
+    )
+
+
+def check_stats_access_restricted(config: HAProxyConfig) -> Finding:
+    """HAPR-ACL-005: Check that the stats endpoint is secured if enabled.
+
+    If stats is enabled (via ``stats enable`` or ``stats uri`` in any section),
+    verifies that ``stats auth`` or ACL-based access control is also configured
+    for the same section.
+
+    Returns PASS if stats is not enabled or if enabled with authentication.
+    Returns FAIL if stats is enabled without any form of authentication.
+    """
+    stats_enabled_sections: list[str] = []
+    secured_sections: list[str] = []
+    unsecured_sections: list[str] = []
+
+    # Check all sections that can carry stats directives
+    all_sections = (
+        list(config.frontends)
+        + list(config.backends)
+        + list(config.listens)
+        + list(config.defaults)
+    )
+
+    for section in all_sections:
+        section_label = getattr(section, "name", "") or "(unnamed)"
+
+        has_stats_enable = False
+        has_stats_uri = False
+        has_stats_auth = False
+        has_acl_restriction = False
+
+        for directive in section.directives:
+            keyword = directive.keyword.lower()
+            args_lower = directive.args.lower()
+
+            if keyword == "stats" and args_lower.startswith("enable"):
+                has_stats_enable = True
+            elif keyword == "stats" and args_lower.startswith("uri"):
+                has_stats_uri = True
+            elif keyword == "stats" and args_lower.startswith("auth"):
+                has_stats_auth = True
+            elif keyword == "stats" and args_lower.startswith("admin"):
+                # stats admin often implies there is an auth requirement
+                pass
+
+            # Check for ACL-based http-request deny/allow near stats
+            if keyword == "http-request" and "stats" in args_lower:
+                has_acl_restriction = True
+
+        stats_enabled = has_stats_enable or has_stats_uri
+        if stats_enabled:
+            stats_enabled_sections.append(section_label)
+            if has_stats_auth or has_acl_restriction:
+                secured_sections.append(section_label)
+            else:
+                unsecured_sections.append(section_label)
+
+    if not stats_enabled_sections:
+        return Finding(
+            check_id="HAPR-ACL-005",
+            status=Status.PASS,
+            message="Stats endpoint is not enabled; no access control required.",
+            evidence="No 'stats enable' or 'stats uri' directives found in any section.",
+        )
+
+    if unsecured_sections:
+        return Finding(
+            check_id="HAPR-ACL-005",
+            status=Status.FAIL,
+            message=(
+                "Stats endpoint is enabled without authentication in one or more sections. "
+                "Add 'stats auth <user>:<password>' or ACL-based restrictions."
+            ),
+            evidence=f"Unsecured stats sections: {', '.join(unsecured_sections)}",
+        )
+
+    return Finding(
+        check_id="HAPR-ACL-005",
+        status=Status.PASS,
+        message="Stats endpoint is enabled and secured with authentication.",
+        evidence=f"Secured stats sections: {', '.join(secured_sections)}",
+    )

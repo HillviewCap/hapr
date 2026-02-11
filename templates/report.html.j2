@@ -1,0 +1,1042 @@
+{# ── Macro: map a percentage to a color ──────────────────── #}
+{% macro score_color(pct) %}{% if pct >= 90 %}#27ae60{% elif pct >= 75 %}#2ecc71{% elif pct >= 60 %}#f1c40f{% elif pct >= 40 %}#e67e22{% else %}#e74c3c{% endif %}{% endmacro %}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HAPR Security Audit Report &mdash; {{ result.config_path }}</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        /* ── Reset & Base ─────────────────────────────────────── */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { font-size: 15px; scroll-behavior: smooth; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: #f0f2f5;
+            color: #2c3e50;
+            line-height: 1.6;
+        }
+        a { color: #2980b9; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        /* ── Header ───────────────────────────────────────────── */
+        .report-header {
+            background: linear-gradient(135deg, #1a2332 0%, #2c3e50 100%);
+            color: #ecf0f1;
+            padding: 2rem 2.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        .report-header h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+        .report-header .subtitle {
+            font-size: 0.9rem;
+            opacity: 0.7;
+            margin-top: 0.25rem;
+        }
+        .header-meta {
+            text-align: right;
+            font-size: 0.85rem;
+            opacity: 0.85;
+        }
+        .header-meta span { display: block; }
+
+        /* ── Navigation ───────────────────────────────────────── */
+        .report-nav {
+            background: #fff;
+            border-bottom: 1px solid #dde1e6;
+            padding: 0 2.5rem;
+            display: flex;
+            gap: 0;
+            overflow-x: auto;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+        }
+        .report-nav a {
+            padding: 0.75rem 1.25rem;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: #5a6a7a;
+            border-bottom: 3px solid transparent;
+            white-space: nowrap;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .report-nav a:hover {
+            color: #2c3e50;
+            border-bottom-color: #bdc3c7;
+            text-decoration: none;
+        }
+
+        /* ── Layout ───────────────────────────────────────────── */
+        .container { max-width: 1320px; margin: 0 auto; padding: 1.5rem 2rem 3rem; }
+        .section { margin-bottom: 2rem; }
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #1a2332;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #e0e4e8;
+        }
+
+        /* ── Card ─────────────────────────────────────────────── */
+        .card {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+            padding: 1.5rem 1.75rem;
+            margin-bottom: 1.25rem;
+        }
+        .card-header {
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            color: #1a2332;
+        }
+
+        /* ── Grade Badge ──────────────────────────────────────── */
+        .grade-badge {
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3rem;
+            font-weight: 800;
+            color: #fff;
+            flex-shrink: 0;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+        }
+        .grade-A { background: linear-gradient(135deg, #27ae60, #2ecc71); }
+        .grade-B { background: linear-gradient(135deg, #2471a3, #3498db); }
+        .grade-C { background: linear-gradient(135deg, #d4a017, #f1c40f); }
+        .grade-D { background: linear-gradient(135deg, #d35400, #e67e22); }
+        .grade-F { background: linear-gradient(135deg, #c0392b, #e74c3c); }
+
+        /* ── Executive Summary Layout ─────────────────────────── */
+        .exec-summary {
+            display: flex;
+            gap: 2rem;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+        .exec-left {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            min-width: 140px;
+        }
+        .exec-score {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #2c3e50;
+        }
+        .exec-details { flex: 1; min-width: 280px; }
+        .exec-details table { width: 100%; border-collapse: collapse; }
+        .exec-details td {
+            padding: 0.35rem 0.75rem;
+            font-size: 0.88rem;
+            border-bottom: 1px solid #f0f2f5;
+        }
+        .exec-details td:first-child {
+            font-weight: 600;
+            color: #5a6a7a;
+            width: 180px;
+        }
+        .stat-row {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }
+        .stat-box {
+            flex: 1;
+            min-width: 100px;
+            background: #f7f9fb;
+            border-radius: 6px;
+            padding: 0.75rem 1rem;
+            text-align: center;
+        }
+        .stat-box .stat-num {
+            font-size: 1.6rem;
+            font-weight: 800;
+        }
+        .stat-box .stat-label {
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #7f8c8d;
+            margin-top: 0.15rem;
+        }
+        .stat-pass .stat-num { color: #27ae60; }
+        .stat-fail .stat-num { color: #e74c3c; }
+        .stat-partial .stat-num { color: #e67e22; }
+        .stat-na .stat-num { color: #95a5a6; }
+        .stat-total .stat-num { color: #2c3e50; }
+
+        /* ── Tables ───────────────────────────────────────────── */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        .data-table th {
+            background: #f7f9fb;
+            text-align: left;
+            padding: 0.6rem 0.75rem;
+            font-weight: 700;
+            color: #1a2332;
+            border-bottom: 2px solid #e0e4e8;
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+        .data-table th:hover { background: #edf0f4; }
+        .data-table td {
+            padding: 0.55rem 0.75rem;
+            border-bottom: 1px solid #f0f2f5;
+            vertical-align: top;
+        }
+        .data-table tbody tr:hover { background: #fafbfc; }
+
+        /* ── Progress Bar ─────────────────────────────────────── */
+        .progress-bar-bg {
+            background: #e8ecf0;
+            border-radius: 4px;
+            height: 10px;
+            width: 100%;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.4s ease;
+        }
+
+        /* ── Badges ───────────────────────────────────────────── */
+        .badge {
+            display: inline-block;
+            padding: 0.15rem 0.55rem;
+            border-radius: 4px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .badge-critical { background: #fadbd8; color: #922b21; }
+        .badge-high     { background: #fdedec; color: #c0392b; }
+        .badge-medium   { background: #fef5e7; color: #b7950b; }
+        .badge-low      { background: #eafaf1; color: #1e8449; }
+        .badge-info     { background: #ebf5fb; color: #2471a3; }
+
+        .badge-pass     { background: #d5f5e3; color: #1e8449; }
+        .badge-fail     { background: #fadbd8; color: #922b21; }
+        .badge-partial  { background: #fef5e7; color: #b7950b; }
+        .badge-na       { background: #eaecee; color: #5d6d7e; }
+        .badge-error    { background: #f5b7b1; color: #78281f; }
+
+        /* ── Filter Buttons ───────────────────────────────────── */
+        .filter-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .filter-group-label {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: #5a6a7a;
+            margin-right: 0.25rem;
+        }
+        .filter-btn {
+            padding: 0.3rem 0.7rem;
+            border: 1px solid #d5d8dc;
+            border-radius: 4px;
+            background: #fff;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+            color: #5a6a7a;
+        }
+        .filter-btn:hover { background: #f0f2f5; }
+        .filter-btn.active {
+            background: #2c3e50;
+            color: #fff;
+            border-color: #2c3e50;
+        }
+
+        /* ── TLS / CVE detail cards ───────────────────────────── */
+        .tls-target-card {
+            border: 1px solid #e0e4e8;
+            border-radius: 6px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+        }
+        .tls-target-card h4 {
+            font-size: 1rem;
+            margin-bottom: 0.75rem;
+            color: #1a2332;
+        }
+        .tls-sub { margin-bottom: 0.75rem; }
+        .tls-sub h5 {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #5a6a7a;
+            margin-bottom: 0.35rem;
+        }
+        .proto-list {
+            display: flex;
+            gap: 0.4rem;
+            flex-wrap: wrap;
+        }
+        .proto-tag {
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .proto-accepted { background: #d5f5e3; color: #1e8449; }
+        .proto-rejected { background: #fadbd8; color: #922b21; }
+
+        .cert-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 0.5rem;
+        }
+        .cert-field { font-size: 0.82rem; }
+        .cert-field .label {
+            font-weight: 600;
+            color: #5a6a7a;
+        }
+
+        .vuln-safe  { color: #27ae60; font-weight: 600; }
+        .vuln-found { color: #e74c3c; font-weight: 700; }
+
+        /* ── Remediation ──────────────────────────────────────── */
+        .remed-group { margin-bottom: 1.25rem; }
+        .remed-group-title {
+            font-size: 0.95rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            padding: 0.4rem 0.75rem;
+            border-radius: 4px;
+        }
+        .remed-critical { background: #fadbd8; color: #922b21; }
+        .remed-high     { background: #fdedec; color: #c0392b; }
+        .remed-medium   { background: #fef5e7; color: #b7950b; }
+        .remed-low      { background: #eafaf1; color: #1e8449; }
+        .remed-info     { background: #ebf5fb; color: #2471a3; }
+
+        .remed-item {
+            padding: 0.5rem 0.75rem;
+            border-left: 3px solid #d5d8dc;
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+        }
+        .remed-item strong { color: #1a2332; }
+        .remed-item p { margin-top: 0.25rem; color: #5a6a7a; }
+
+        /* ── Chart containers ─────────────────────────────────── */
+        .chart-container { width: 100%; overflow: hidden; }
+
+        /* ── Footer ───────────────────────────────────────────── */
+        .report-footer {
+            background: #1a2332;
+            color: #7f8c8d;
+            text-align: center;
+            padding: 1.25rem 2rem;
+            font-size: 0.8rem;
+        }
+
+        /* ── Evidence / message cells ─────────────────────────── */
+        .evidence-cell {
+            max-width: 320px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+            font-size: 0.78rem;
+            color: #5a6a7a;
+        }
+        .message-cell {
+            max-width: 360px;
+            word-break: break-word;
+        }
+
+        /* ── Responsive ───────────────────────────────────────── */
+        @media (max-width: 768px) {
+            .report-header { padding: 1.25rem 1rem; flex-direction: column; text-align: center; }
+            .header-meta { text-align: center; }
+            .container { padding: 1rem; }
+            .exec-summary { flex-direction: column; align-items: center; }
+            .report-nav { padding: 0 0.5rem; }
+            .report-nav a { padding: 0.5rem 0.75rem; font-size: 0.75rem; }
+            .stat-row { gap: 0.5rem; }
+            .stat-box { min-width: 80px; padding: 0.5rem; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════
+     HEADER
+     ═══════════════════════════════════════════════════════════ -->
+<header class="report-header">
+    <div>
+        <h1>HAPR Security Audit Report</h1>
+        <div class="subtitle">HAProxy Configuration Security Assessment</div>
+    </div>
+    <div class="header-meta">
+        <span>{{ result.scan_date }}</span>
+        <span>{{ result.config_path }}</span>
+    </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════════
+     NAVIGATION
+     ═══════════════════════════════════════════════════════════ -->
+<nav class="report-nav">
+    <a href="#executive-summary">Executive Summary</a>
+    <a href="#score-breakdown">Score Breakdown</a>
+    <a href="#topology">Topology</a>
+    {% if result.scan_performed %}
+    <a href="#tls-scan">TLS Scan</a>
+    {% endif %}
+    {% if result.cve_check_performed %}
+    <a href="#cve-summary">CVE Summary</a>
+    {% endif %}
+    <a href="#findings-detail">Findings</a>
+    <a href="#remediation-summary">Remediation</a>
+</nav>
+
+<div class="container">
+
+<!-- ═══════════════════════════════════════════════════════════
+     1. EXECUTIVE SUMMARY
+     ═══════════════════════════════════════════════════════════ -->
+<div class="section" id="executive-summary">
+    <h2 class="section-title">Executive Summary</h2>
+    <div class="card">
+        <div class="exec-summary">
+            <!-- Grade badge -->
+            <div class="exec-left">
+                <div class="grade-badge grade-{{ result.letter_grade }}">{{ result.letter_grade }}</div>
+                <div class="exec-score">{{ "%.1f" | format(result.overall_score) }}%</div>
+            </div>
+
+            <!-- Detail table -->
+            <div class="exec-details">
+                <table>
+                    <tr>
+                        <td>Configuration File</td>
+                        <td>{{ result.config_path }}</td>
+                    </tr>
+                    <tr>
+                        <td>Scan Date</td>
+                        <td>{{ result.scan_date }}</td>
+                    </tr>
+                    <tr>
+                        <td>HAProxy Version</td>
+                        <td>{{ result.haproxy_version | default("Not detected", true) }}</td>
+                    </tr>
+                    <tr>
+                        <td>TLS Scan Performed</td>
+                        <td>{% if result.scan_performed %}Yes{% else %}No{% endif %}</td>
+                    </tr>
+                    <tr>
+                        <td>CVE Check Performed</td>
+                        <td>{% if result.cve_check_performed %}Yes{% else %}No{% endif %}</td>
+                    </tr>
+                </table>
+
+                <!-- Quick stats -->
+                {% set ns = namespace(total=0, pass_count=0, fail_count=0, partial_count=0, na_count=0) %}
+                {% for f in result.findings %}
+                    {% set ns.total = ns.total + 1 %}
+                    {% if f.status.value == "pass" %}
+                        {% set ns.pass_count = ns.pass_count + 1 %}
+                    {% elif f.status.value == "fail" %}
+                        {% set ns.fail_count = ns.fail_count + 1 %}
+                    {% elif f.status.value == "partial" %}
+                        {% set ns.partial_count = ns.partial_count + 1 %}
+                    {% elif f.status.value == "n/a" %}
+                        {% set ns.na_count = ns.na_count + 1 %}
+                    {% endif %}
+                {% endfor %}
+                <div class="stat-row">
+                    <div class="stat-box stat-total">
+                        <div class="stat-num">{{ ns.total }}</div>
+                        <div class="stat-label">Total Checks</div>
+                    </div>
+                    <div class="stat-box stat-pass">
+                        <div class="stat-num">{{ ns.pass_count }}</div>
+                        <div class="stat-label">Passed</div>
+                    </div>
+                    <div class="stat-box stat-fail">
+                        <div class="stat-num">{{ ns.fail_count }}</div>
+                        <div class="stat-label">Failed</div>
+                    </div>
+                    <div class="stat-box stat-partial">
+                        <div class="stat-num">{{ ns.partial_count }}</div>
+                        <div class="stat-label">Partial</div>
+                    </div>
+                    <div class="stat-box stat-na">
+                        <div class="stat-num">{{ ns.na_count }}</div>
+                        <div class="stat-label">N/A</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     2. SCORE BREAKDOWN
+     ═══════════════════════════════════════════════════════════ -->
+<div class="section" id="score-breakdown">
+    <h2 class="section-title">Score Breakdown</h2>
+
+    <!-- Plotly bar chart -->
+    {% if score_chart_html %}
+    <div class="card">
+        <div class="chart-container">
+            {{ score_chart_html | safe }}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Category table -->
+    <div class="card">
+        <div class="card-header">Category Details</div>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Category</th>
+                    <th>Score</th>
+                    <th style="min-width:160px;">Progress</th>
+                    <th>Pass</th>
+                    <th>Fail</th>
+                    <th>Partial</th>
+                    <th>N/A</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for cat_id, cat in result.category_scores.items() %}
+                <tr>
+                    <td style="font-weight:600;">{{ cat.category_name }}</td>
+                    <td>{{ "%.1f" | format(cat.percentage) }}%</td>
+                    <td>
+                        <div class="progress-bar-bg">
+                            <div class="progress-bar-fill" style="width:{{ cat.percentage }}%; background:{{ score_color(cat.percentage) | trim }};"></div>
+                        </div>
+                    </td>
+                    <td style="color:#27ae60; font-weight:600;">{{ cat.pass_count }}</td>
+                    <td style="color:#e74c3c; font-weight:600;">{{ cat.fail_count }}</td>
+                    <td style="color:#e67e22; font-weight:600;">{{ cat.partial_count }}</td>
+                    <td style="color:#95a5a6;">{{ cat.na_count }}</td>
+                    <td>{{ cat.check_count }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     3. NETWORK TOPOLOGY
+     ═══════════════════════════════════════════════════════════ -->
+<div class="section" id="topology">
+    <h2 class="section-title">Network Topology</h2>
+    <div class="card">
+        {% if topology_html %}
+        <div class="chart-container">
+            {{ topology_html | safe }}
+        </div>
+        {% else %}
+        <p style="color:#7f8c8d;">No topology data available.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     4. TLS SCAN RESULTS
+     ═══════════════════════════════════════════════════════════ -->
+{% if result.scan_performed %}
+<div class="section" id="tls-scan">
+    <h2 class="section-title">TLS Scan Results</h2>
+
+    {% for scan in result.scan_results %}
+    <div class="card tls-target-card">
+        <h4>{{ scan.target }}:{{ scan.port }}</h4>
+
+        {% if scan.error %}
+        <p style="color:#e74c3c; font-weight:600;">Scan error: {{ scan.error }}</p>
+        {% else %}
+
+        <!-- Accepted Protocols -->
+        <div class="tls-sub">
+            <h5>Protocols</h5>
+            <div class="proto-list">
+                {% for proto in scan.accepted_protocols %}
+                <span class="proto-tag proto-accepted">{{ proto }}</span>
+                {% endfor %}
+                {% for proto in scan.rejected_protocols %}
+                <span class="proto-tag proto-rejected">{{ proto }}</span>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Accepted Ciphers -->
+        {% if scan.accepted_ciphers %}
+        <div class="tls-sub">
+            <h5>Accepted Cipher Suites</h5>
+            {% for proto, ciphers in scan.accepted_ciphers.items() %}
+            <p style="font-size:0.82rem; font-weight:600; margin-top:0.5rem;">{{ proto }}</p>
+            <table class="data-table" style="margin-bottom:0.5rem;">
+                <thead><tr><th>Cipher Suite</th></tr></thead>
+                <tbody>
+                    {% for cipher in ciphers %}
+                    <tr><td style="font-family:monospace; font-size:0.8rem;">{{ cipher }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Certificate Info -->
+        {% if scan.cert_info %}
+        <div class="tls-sub">
+            <h5>Certificate Information</h5>
+            <div class="cert-grid">
+                <div class="cert-field"><span class="label">Subject:</span> {{ scan.cert_info.subject | default("N/A", true) }}</div>
+                <div class="cert-field"><span class="label">Issuer:</span> {{ scan.cert_info.issuer | default("N/A", true) }}</div>
+                <div class="cert-field"><span class="label">Valid From:</span> {{ scan.cert_info.not_before | default("N/A", true) }}</div>
+                <div class="cert-field"><span class="label">Valid Until:</span> {{ scan.cert_info.not_after | default("N/A", true) }}</div>
+                <div class="cert-field"><span class="label">Key Size:</span> {{ scan.cert_info.key_size | default("N/A", true) }} bits</div>
+                <div class="cert-field"><span class="label">Signature Algorithm:</span> {{ scan.cert_info.signature_algorithm | default("N/A", true) }}</div>
+                <div class="cert-field">
+                    <span class="label">Self-Signed:</span>
+                    {% if scan.cert_info.is_self_signed %}
+                    <span style="color:#e74c3c; font-weight:600;">Yes</span>
+                    {% else %}
+                    <span style="color:#27ae60;">No</span>
+                    {% endif %}
+                </div>
+                <div class="cert-field">
+                    <span class="label">Expired:</span>
+                    {% if scan.cert_info.is_expired %}
+                    <span style="color:#e74c3c; font-weight:600;">Yes</span>
+                    {% else %}
+                    <span style="color:#27ae60;">No</span>
+                    {% endif %}
+                </div>
+                <div class="cert-field">
+                    <span class="label">Chain Valid:</span>
+                    {% if scan.cert_info.chain_valid %}
+                    <span style="color:#27ae60;">Yes</span>
+                    {% else %}
+                    <span style="color:#e74c3c; font-weight:600;">No</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% if scan.cert_info.san_entries %}
+            <div style="margin-top:0.5rem;">
+                <span class="label" style="font-size:0.82rem; font-weight:600; color:#5a6a7a;">SAN Entries:</span>
+                <span style="font-size:0.82rem;">{{ scan.cert_info.san_entries | join(", ") }}</span>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Vulnerabilities -->
+        {% if scan.vulnerabilities %}
+        <div class="tls-sub">
+            <h5>Vulnerability Checks</h5>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Vulnerability</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for vuln_name, is_vulnerable in scan.vulnerabilities.items() %}
+                    <tr>
+                        <td style="font-weight:600;">{{ vuln_name | replace("_", " ") | title }}</td>
+                        <td>
+                            {% if is_vulnerable %}
+                            <span class="vuln-found">VULNERABLE</span>
+                            {% else %}
+                            <span class="vuln-safe">Safe</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <!-- Additional TLS Details -->
+        <div class="tls-sub">
+            <h5>Additional Details</h5>
+            <div class="cert-grid">
+                <div class="cert-field">
+                    <span class="label">HSTS:</span>
+                    {{ scan.hsts_header | default("Not set", true) }}
+                </div>
+                <div class="cert-field">
+                    <span class="label">Fallback SCSV:</span>
+                    {% if scan.supports_fallback_scsv %}
+                    <span style="color:#27ae60;">Supported</span>
+                    {% else %}
+                    <span style="color:#e67e22;">Not supported</span>
+                    {% endif %}
+                </div>
+                <div class="cert-field">
+                    <span class="label">Secure Renegotiation:</span>
+                    {% if scan.secure_renegotiation %}
+                    <span style="color:#27ae60;">Yes</span>
+                    {% else %}
+                    <span style="color:#e74c3c; font-weight:600;">No</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% if scan.supported_curves %}
+            <div style="margin-top:0.5rem;">
+                <span class="label" style="font-size:0.82rem; font-weight:600; color:#5a6a7a;">Supported Curves:</span>
+                <span style="font-size:0.82rem;">{{ scan.supported_curves | join(", ") }}</span>
+            </div>
+            {% endif %}
+        </div>
+
+        {% endif %}{# end error check #}
+    </div>
+    {% endfor %}
+
+    {% if not result.scan_results %}
+    <div class="card">
+        <p style="color:#7f8c8d;">TLS scan was performed but returned no results.</p>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- ═══════════════════════════════════════════════════════════
+     5. CVE SUMMARY
+     ═══════════════════════════════════════════════════════════ -->
+{% if result.cve_check_performed %}
+<div class="section" id="cve-summary">
+    <h2 class="section-title">CVE Summary</h2>
+    <div class="card">
+        <table style="margin-bottom:1rem; font-size:0.88rem;">
+            <tr>
+                <td style="font-weight:600; color:#5a6a7a; padding-right:1rem;">Version Checked</td>
+                <td>{{ result.haproxy_version | default("Unknown", true) }}</td>
+            </tr>
+            <tr>
+                <td style="font-weight:600; color:#5a6a7a; padding-right:1rem;">Total CVEs Found</td>
+                <td style="font-weight:700;">{{ result.cve_results | length }}</td>
+            </tr>
+        </table>
+
+        {% if result.cve_results %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>CVE ID</th>
+                    <th>Description</th>
+                    <th>CVSS</th>
+                    <th>Severity</th>
+                    <th>Published</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for cve in result.cve_results %}
+                <tr>
+                    <td style="white-space:nowrap;">
+                        {% if cve.url %}
+                        <a href="{{ cve.url }}" target="_blank" rel="noopener">{{ cve.cve_id }}</a>
+                        {% else %}
+                        {{ cve.cve_id }}
+                        {% endif %}
+                    </td>
+                    <td class="message-cell">{{ cve.description | default("No description available", true) }}</td>
+                    <td style="font-weight:700;">{{ "%.1f" | format(cve.cvss_score) }}</td>
+                    <td>
+                        <span class="badge badge-{{ cve.severity | lower | default('info', true) }}">
+                            {{ cve.severity | default("unknown", true) }}
+                        </span>
+                    </td>
+                    <td style="white-space:nowrap;">{{ cve.published_date | default("N/A", true) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color:#27ae60; font-weight:600;">No known CVEs found for this version.</p>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- ═══════════════════════════════════════════════════════════
+     6. FINDINGS DETAIL
+     ═══════════════════════════════════════════════════════════ -->
+<div class="section" id="findings-detail">
+    <h2 class="section-title">Findings Detail</h2>
+    <div class="card">
+        <!-- Filter bar -->
+        <div class="filter-bar">
+            <div class="filter-group">
+                <span class="filter-group-label">Severity:</span>
+                <button class="filter-btn active" data-filter-type="severity" data-filter-value="all" onclick="applyFilter('severity', 'all', this)">All</button>
+                <button class="filter-btn" data-filter-type="severity" data-filter-value="critical" onclick="applyFilter('severity', 'critical', this)">Critical</button>
+                <button class="filter-btn" data-filter-type="severity" data-filter-value="high" onclick="applyFilter('severity', 'high', this)">High</button>
+                <button class="filter-btn" data-filter-type="severity" data-filter-value="medium" onclick="applyFilter('severity', 'medium', this)">Medium</button>
+                <button class="filter-btn" data-filter-type="severity" data-filter-value="low" onclick="applyFilter('severity', 'low', this)">Low</button>
+                <button class="filter-btn" data-filter-type="severity" data-filter-value="info" onclick="applyFilter('severity', 'info', this)">Info</button>
+            </div>
+            <div class="filter-group">
+                <span class="filter-group-label">Status:</span>
+                <button class="filter-btn active" data-filter-type="status" data-filter-value="all" onclick="applyFilter('status', 'all', this)">All</button>
+                <button class="filter-btn" data-filter-type="status" data-filter-value="pass" onclick="applyFilter('status', 'pass', this)">Pass</button>
+                <button class="filter-btn" data-filter-type="status" data-filter-value="fail" onclick="applyFilter('status', 'fail', this)">Fail</button>
+                <button class="filter-btn" data-filter-type="status" data-filter-value="partial" onclick="applyFilter('status', 'partial', this)">Partial</button>
+                <button class="filter-btn" data-filter-type="status" data-filter-value="n/a" onclick="applyFilter('status', 'n/a', this)">N/A</button>
+            </div>
+            <div class="filter-group">
+                <span class="filter-group-label">Category:</span>
+                <button class="filter-btn active" data-filter-type="category" data-filter-value="all" onclick="applyFilter('category', 'all', this)">All</button>
+                {% set seen_categories = [] %}
+                {% for f in result.findings %}
+                    {% if f.category and f.category not in seen_categories %}
+                        {% if seen_categories.append(f.category) %}{% endif %}
+                <button class="filter-btn" data-filter-type="category" data-filter-value="{{ f.category | lower }}" onclick="applyFilter('category', '{{ f.category | lower }}', this)">{{ f.category | title }}</button>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Findings table -->
+        <div style="overflow-x:auto;">
+        <table class="data-table" id="findings-table">
+            <thead>
+                <tr>
+                    <th onclick="sortTable(0)">ID</th>
+                    <th onclick="sortTable(1)">Title</th>
+                    <th onclick="sortTable(2)">Category</th>
+                    <th onclick="sortTable(3)">Severity</th>
+                    <th onclick="sortTable(4)">Status</th>
+                    <th onclick="sortTable(5)">Message</th>
+                    <th onclick="sortTable(6)">Evidence</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for f in result.findings %}
+                <tr data-severity="{{ f.severity.value }}" data-status="{{ f.status.value }}" data-category="{{ f.category | lower | default('', true) }}">
+                    <td style="white-space:nowrap; font-family:monospace; font-size:0.8rem;">{{ f.check_id }}</td>
+                    <td style="font-weight:600;">{{ f.title | default(f.check_id, true) }}</td>
+                    <td>{{ f.category | default("", true) | title }}</td>
+                    <td>
+                        <span class="badge badge-{{ f.severity.value }}">{{ f.severity.value }}</span>
+                    </td>
+                    <td>
+                        <span class="badge badge-{{ f.status.value | replace('/', '') | replace('n/a', 'na') }}">{{ f.status.value }}</span>
+                    </td>
+                    <td class="message-cell">{{ f.message | default("", true) }}</td>
+                    <td class="evidence-cell">{{ f.evidence | default("", true) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        <div id="findings-count" style="margin-top:0.75rem; font-size:0.8rem; color:#7f8c8d;"></div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     7. REMEDIATION SUMMARY
+     ═══════════════════════════════════════════════════════════ -->
+<div class="section" id="remediation-summary">
+    <h2 class="section-title">Remediation Summary</h2>
+
+    {% set severity_order = ["critical", "high", "medium", "low", "info"] %}
+
+    {% for sev in severity_order %}
+        {% set failed = [] %}
+        {% for f in result.findings %}
+            {% if f.status.value == "fail" and f.severity.value == sev and f.remediation %}
+                {% if failed.append(f) %}{% endif %}
+            {% endif %}
+        {% endfor %}
+
+        {% if failed %}
+        <div class="card remed-group">
+            <div class="remed-group-title remed-{{ sev }}">
+                {{ sev | title }} Severity ({{ failed | length }} finding{{ "s" if failed | length != 1 else "" }})
+            </div>
+            {% for f in failed %}
+            <div class="remed-item">
+                <strong>{{ f.check_id }}</strong> &mdash; {{ f.title | default(f.check_id, true) }}
+                <p>{{ f.remediation }}</p>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endfor %}
+
+    {# Check if there are any failed findings with remediation at all #}
+    {% set has_remediation = [] %}
+    {% for f in result.findings %}
+        {% if f.status.value == "fail" and f.remediation %}
+            {% if has_remediation.append(1) %}{% endif %}
+        {% endif %}
+    {% endfor %}
+    {% if not has_remediation %}
+    <div class="card">
+        <p style="color:#27ae60; font-weight:600;">No failed findings require remediation. All checks passed or are informational.</p>
+    </div>
+    {% endif %}
+</div>
+
+</div><!-- end .container -->
+
+<!-- ═══════════════════════════════════════════════════════════
+     FOOTER
+     ═══════════════════════════════════════════════════════════ -->
+<footer class="report-footer">
+    Generated by HAPR v0.1.0 &mdash; {{ result.scan_date }}
+</footer>
+
+<!-- ═══════════════════════════════════════════════════════════
+     JAVASCRIPT
+     ═══════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+    "use strict";
+
+    /* ── Active filters state ─────────────────────────────── */
+    var activeFilters = {
+        severity: "all",
+        status: "all",
+        category: "all"
+    };
+
+    /* ── Color helper for progress bars (called inline via Jinja
+         but also available in JS if needed) ───────────────── */
+    window.scoreColor = function (pct) {
+        if (pct >= 90) return "#27ae60";
+        if (pct >= 75) return "#2ecc71";
+        if (pct >= 60) return "#f1c40f";
+        if (pct >= 40) return "#e67e22";
+        return "#e74c3c";
+    };
+
+    /* ── Filter logic ─────────────────────────────────────── */
+    window.applyFilter = function (type, value, btn) {
+        activeFilters[type] = value;
+
+        /* Update button active state within its group */
+        var group = btn.parentElement;
+        var siblings = group.querySelectorAll(".filter-btn");
+        for (var i = 0; i < siblings.length; i++) {
+            siblings[i].classList.remove("active");
+        }
+        btn.classList.add("active");
+
+        filterTable();
+    };
+
+    function filterTable() {
+        var table = document.getElementById("findings-table");
+        if (!table) return;
+        var rows = table.tBodies[0].rows;
+        var visible = 0;
+
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i];
+            var sev = row.getAttribute("data-severity");
+            var stat = row.getAttribute("data-status");
+            var cat = row.getAttribute("data-category");
+
+            var show = true;
+            if (activeFilters.severity !== "all" && sev !== activeFilters.severity) show = false;
+            if (activeFilters.status !== "all" && stat !== activeFilters.status) show = false;
+            if (activeFilters.category !== "all" && cat !== activeFilters.category) show = false;
+
+            row.style.display = show ? "" : "none";
+            if (show) visible++;
+        }
+
+        var countEl = document.getElementById("findings-count");
+        if (countEl) {
+            countEl.textContent = "Showing " + visible + " of " + rows.length + " findings";
+        }
+    }
+
+    /* ── Sorting logic ────────────────────────────────────── */
+    var sortDirection = {};
+
+    window.sortTable = function (colIndex) {
+        var table = document.getElementById("findings-table");
+        if (!table) return;
+        var tbody = table.tBodies[0];
+        var rows = Array.prototype.slice.call(tbody.rows);
+
+        /* Toggle direction */
+        sortDirection[colIndex] = !sortDirection[colIndex];
+        var asc = sortDirection[colIndex];
+
+        /* Severity ordering for proper sorting */
+        var severityOrder = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+
+        rows.sort(function (a, b) {
+            var aText = (a.cells[colIndex].textContent || "").trim().toLowerCase();
+            var bText = (b.cells[colIndex].textContent || "").trim().toLowerCase();
+
+            /* Special handling for severity column */
+            if (colIndex === 3) {
+                var aOrd = severityOrder[aText] !== undefined ? severityOrder[aText] : 5;
+                var bOrd = severityOrder[bText] !== undefined ? severityOrder[bText] : 5;
+                return asc ? aOrd - bOrd : bOrd - aOrd;
+            }
+
+            if (aText < bText) return asc ? -1 : 1;
+            if (aText > bText) return asc ? 1 : -1;
+            return 0;
+        });
+
+        for (var i = 0; i < rows.length; i++) {
+            tbody.appendChild(rows[i]);
+        }
+    };
+
+    /* ── Initialise findings count ────────────────────────── */
+    document.addEventListener("DOMContentLoaded", function () {
+        filterTable();
+    });
+})();
+</script>
+
+</body>
+</html>
