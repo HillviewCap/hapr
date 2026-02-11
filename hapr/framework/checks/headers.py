@@ -16,6 +16,20 @@ from ...models import Directive, HAProxyConfig, Finding, Status
 # Helper
 # ---------------------------------------------------------------------------
 
+def _extract_header_value(directive: Directive, header_name: str) -> str:
+    """Extract the header value from a response-header directive.
+
+    The directive args look like ``"set-header X-Frame-Options DENY"``; this
+    helper returns the portion after the header name (e.g. ``"DENY"``).
+    """
+    match = re.search(
+        r"(?:set-header|add-header)\s+" + re.escape(header_name) + r"\s+(.+)",
+        directive.args,
+        re.IGNORECASE,
+    )
+    return match.group(1).strip().strip("\"'") if match else ""
+
+
 def _find_response_header(
     config: HAProxyConfig, header_name: str
 ) -> Directive | None:
@@ -68,15 +82,27 @@ def check_x_frame_options(config: HAProxyConfig) -> Finding:
     ``<iframe>``, or ``<object>``.  Expected values are ``DENY`` or
     ``SAMEORIGIN``.
 
-    Returns PASS if the header is set, FAIL otherwise.
+    Returns PASS if value is DENY or SAMEORIGIN, PARTIAL if header is present
+    but has an invalid value, FAIL if header is not set.
     """
     directive = _find_response_header(config, "X-Frame-Options")
 
     if directive:
+        value = _extract_header_value(directive, "X-Frame-Options")
+        if value.upper() in ("DENY", "SAMEORIGIN"):
+            return Finding(
+                check_id="HAPR-HDR-001",
+                status=Status.PASS,
+                message=f"X-Frame-Options header is configured with valid value '{value}'.",
+                evidence=f"http-response {directive.args} (line {directive.line_number})",
+            )
         return Finding(
             check_id="HAPR-HDR-001",
-            status=Status.PASS,
-            message="X-Frame-Options header is configured.",
+            status=Status.PARTIAL,
+            message=(
+                f"X-Frame-Options header is set to '{value}', which is not a "
+                "recommended value. Use 'DENY' or 'SAMEORIGIN'."
+            ),
             evidence=f"http-response {directive.args} (line {directive.line_number})",
         )
 
@@ -98,15 +124,39 @@ def check_csp_header(config: HAProxyConfig) -> Finding:
     Content-Security-Policy (CSP) is the most effective mitigation against
     cross-site scripting (XSS) and data injection attacks.
 
-    Returns PASS if the header is set, FAIL otherwise.
+    Returns PASS if header is present without dangerous patterns, PARTIAL if
+    it contains ``unsafe-inline``, ``unsafe-eval``, or wildcard ``*`` sources,
+    FAIL if header is not set.
     """
     directive = _find_response_header(config, "Content-Security-Policy")
 
     if directive:
+        value = _extract_header_value(directive, "Content-Security-Policy")
+        # Check for dangerous CSP patterns
+        dangerous_patterns = []
+        if "unsafe-inline" in value.lower():
+            dangerous_patterns.append("unsafe-inline")
+        if "unsafe-eval" in value.lower():
+            dangerous_patterns.append("unsafe-eval")
+        # Match wildcard * used as a source (e.g. "default-src *")
+        if re.search(r"(?:^|\s)\*(?:\s|;|$)", value):
+            dangerous_patterns.append("* (wildcard source)")
+
+        if dangerous_patterns:
+            return Finding(
+                check_id="HAPR-HDR-002",
+                status=Status.PARTIAL,
+                message=(
+                    "Content-Security-Policy header is set but contains dangerous "
+                    f"patterns: {', '.join(dangerous_patterns)}."
+                ),
+                evidence=f"http-response {directive.args} (line {directive.line_number})",
+            )
+
         return Finding(
             check_id="HAPR-HDR-002",
             status=Status.PASS,
-            message="Content-Security-Policy header is configured.",
+            message="Content-Security-Policy header is configured with a strict policy.",
             evidence=f"http-response {directive.args} (line {directive.line_number})",
         )
 
@@ -127,15 +177,27 @@ def check_x_content_type_options(config: HAProxyConfig) -> Finding:
     This header prevents browsers from MIME-type sniffing a response away
     from the declared content type.  The only valid value is ``nosniff``.
 
-    Returns PASS if the header is set, FAIL otherwise.
+    Returns PASS if value is ``nosniff``, PARTIAL if header is present with a
+    different value, FAIL if header is not set.
     """
     directive = _find_response_header(config, "X-Content-Type-Options")
 
     if directive:
+        value = _extract_header_value(directive, "X-Content-Type-Options")
+        if value.lower() == "nosniff":
+            return Finding(
+                check_id="HAPR-HDR-003",
+                status=Status.PASS,
+                message="X-Content-Type-Options header is correctly set to 'nosniff'.",
+                evidence=f"http-response {directive.args} (line {directive.line_number})",
+            )
         return Finding(
             check_id="HAPR-HDR-003",
-            status=Status.PASS,
-            message="X-Content-Type-Options header is configured.",
+            status=Status.PARTIAL,
+            message=(
+                f"X-Content-Type-Options header is set to '{value}', but the "
+                "only valid value is 'nosniff'."
+            ),
             evidence=f"http-response {directive.args} (line {directive.line_number})",
         )
 
@@ -151,6 +213,19 @@ def check_x_content_type_options(config: HAProxyConfig) -> Finding:
     )
 
 
+_SAFE_REFERRER_POLICIES = {
+    "no-referrer",
+    "no-referrer-when-downgrade",
+    "origin",
+    "origin-when-cross-origin",
+    "same-origin",
+    "strict-origin",
+    "strict-origin-when-cross-origin",
+}
+
+_INSECURE_REFERRER_POLICIES = {"unsafe-url", ""}
+
+
 def check_referrer_policy(config: HAProxyConfig) -> Finding:
     """HAPR-HDR-004: Check for Referrer-Policy header.
 
@@ -158,15 +233,27 @@ def check_referrer_policy(config: HAProxyConfig) -> Finding:
     included with requests.  Setting it reduces information leakage to
     third-party sites.
 
-    Returns PASS if the header is set, FAIL otherwise.
+    Returns PASS if a recognized safe policy is set, PARTIAL if the value is
+    ``unsafe-url`` or empty, FAIL if the header is not set.
     """
     directive = _find_response_header(config, "Referrer-Policy")
 
     if directive:
+        value = _extract_header_value(directive, "Referrer-Policy")
+        if value.lower() in _INSECURE_REFERRER_POLICIES:
+            return Finding(
+                check_id="HAPR-HDR-004",
+                status=Status.PARTIAL,
+                message=(
+                    f"Referrer-Policy header is set to '{value}', which is insecure. "
+                    "Use a stricter policy such as 'strict-origin-when-cross-origin'."
+                ),
+                evidence=f"http-response {directive.args} (line {directive.line_number})",
+            )
         return Finding(
             check_id="HAPR-HDR-004",
             status=Status.PASS,
-            message="Referrer-Policy header is configured.",
+            message=f"Referrer-Policy header is configured with value '{value}'.",
             evidence=f"http-response {directive.args} (line {directive.line_number})",
         )
 
@@ -270,4 +357,99 @@ def check_x_xss_protection(config: HAProxyConfig) -> Finding:
             "on Content-Security-Policy instead."
         ),
         evidence=f"http-response {directive.args} (line {directive.line_number})",
+    )
+
+
+def check_cross_origin_opener_policy(config: HAProxyConfig) -> Finding:
+    """HAPR-HDR-007: Check for Cross-Origin-Opener-Policy (COOP) header.
+
+    The Cross-Origin-Opener-Policy header prevents other domains from
+    opening or controlling a window.  This isolates the browsing context
+    and mitigates cross-origin attacks such as Spectre.
+
+    Returns PASS if the header is set, FAIL otherwise.
+    """
+    directive = _find_response_header(config, "Cross-Origin-Opener-Policy")
+
+    if directive:
+        return Finding(
+            check_id="HAPR-HDR-007",
+            status=Status.PASS,
+            message="Cross-Origin-Opener-Policy header is configured.",
+            evidence=f"http-response {directive.args} (line {directive.line_number})",
+        )
+
+    return Finding(
+        check_id="HAPR-HDR-007",
+        status=Status.FAIL,
+        message=(
+            "Cross-Origin-Opener-Policy header is not set. Add "
+            "'http-response set-header Cross-Origin-Opener-Policy same-origin' "
+            "to isolate the browsing context from cross-origin documents."
+        ),
+        evidence="No http-response set-header/add-header for Cross-Origin-Opener-Policy found.",
+    )
+
+
+def check_cross_origin_embedder_policy(config: HAProxyConfig) -> Finding:
+    """HAPR-HDR-008: Check for Cross-Origin-Embedder-Policy (COEP) header.
+
+    The Cross-Origin-Embedder-Policy header prevents a document from
+    loading cross-origin resources that do not explicitly grant permission.
+    Combined with COOP, it enables cross-origin isolation and access to
+    powerful APIs such as ``SharedArrayBuffer``.
+
+    Returns PASS if the header is set, FAIL otherwise.
+    """
+    directive = _find_response_header(config, "Cross-Origin-Embedder-Policy")
+
+    if directive:
+        return Finding(
+            check_id="HAPR-HDR-008",
+            status=Status.PASS,
+            message="Cross-Origin-Embedder-Policy header is configured.",
+            evidence=f"http-response {directive.args} (line {directive.line_number})",
+        )
+
+    return Finding(
+        check_id="HAPR-HDR-008",
+        status=Status.FAIL,
+        message=(
+            "Cross-Origin-Embedder-Policy header is not set. Add "
+            "'http-response set-header Cross-Origin-Embedder-Policy require-corp' "
+            "to prevent loading of cross-origin resources without explicit permission."
+        ),
+        evidence="No http-response set-header/add-header for Cross-Origin-Embedder-Policy found.",
+    )
+
+
+def check_cross_origin_resource_policy(config: HAProxyConfig) -> Finding:
+    """HAPR-HDR-009: Check for Cross-Origin-Resource-Policy (CORP) header.
+
+    The Cross-Origin-Resource-Policy header indicates whether a resource
+    can be shared cross-origin.  Setting it to ``same-origin`` or
+    ``same-site`` prevents other origins from loading the resource,
+    mitigating side-channel attacks and data leaks.
+
+    Returns PASS if the header is set, FAIL otherwise.
+    """
+    directive = _find_response_header(config, "Cross-Origin-Resource-Policy")
+
+    if directive:
+        return Finding(
+            check_id="HAPR-HDR-009",
+            status=Status.PASS,
+            message="Cross-Origin-Resource-Policy header is configured.",
+            evidence=f"http-response {directive.args} (line {directive.line_number})",
+        )
+
+    return Finding(
+        check_id="HAPR-HDR-009",
+        status=Status.FAIL,
+        message=(
+            "Cross-Origin-Resource-Policy header is not set. Add "
+            "'http-response set-header Cross-Origin-Resource-Policy same-origin' "
+            "to control cross-origin resource sharing and mitigate side-channel attacks."
+        ),
+        evidence="No http-response set-header/add-header for Cross-Origin-Resource-Policy found.",
     )

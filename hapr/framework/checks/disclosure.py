@@ -356,3 +356,121 @@ def check_stats_version_hidden(config: HAProxyConfig) -> Finding:
         ),
         evidence="; ".join(evidence_parts),
     )
+
+
+# ---- HAPR-INF-005 --------------------------------------------------------
+
+def check_xff_spoofing_prevention(config: HAProxyConfig) -> Finding:
+    """Check that X-Forwarded-For header spoofing is prevented.
+
+    When ``option forwardfor`` is enabled, HAProxy appends the client IP
+    to the ``X-Forwarded-For`` header.  However, an attacker can inject a
+    fake ``X-Forwarded-For`` value in the original request.  Best practice
+    is to delete or overwrite the header before HAProxy sets it:
+
+    * ``http-request del-header X-Forwarded-For`` -- strongest protection.
+    * ``http-request set-header X-Forwarded-For %[src]`` -- resets to the
+      real client IP.
+    * ``option forwardfor if-none`` -- only sets the header if it is not
+      already present (weaker, but documented).
+
+    Returns
+    -------
+    Finding
+        PASS           -- XFF is deleted/reset before ``option forwardfor``.
+        PARTIAL        -- ``option forwardfor if-none`` is used.
+        FAIL           -- ``option forwardfor`` is used without prevention.
+        NOT_APPLICABLE -- ``option forwardfor`` is not used at all.
+    """
+    forwardfor_found = False
+    if_none_found = False
+    xff_reset_found = False
+    evidence_parts: list[str] = []
+
+    sections: list[tuple[str, str, Any]] = []
+    for d in config.defaults:
+        sections.append(("defaults", d.name or "(unnamed)", d))
+    for fe in config.frontends:
+        sections.append(("frontend", fe.name, fe))
+    for ls in config.listens:
+        sections.append(("listen", ls.name, ls))
+
+    for kind, name, section in sections:
+        # Check for option forwardfor
+        for directive in section.get("option"):
+            args_lower = directive.args.lower()
+            if args_lower.startswith("forwardfor"):
+                forwardfor_found = True
+                if "if-none" in args_lower:
+                    if_none_found = True
+                    evidence_parts.append(
+                        f"{kind} '{name}': option forwardfor if-none "
+                        f"(line {directive.line_number})"
+                    )
+                else:
+                    evidence_parts.append(
+                        f"{kind} '{name}': option {directive.args} "
+                        f"(line {directive.line_number})"
+                    )
+
+        # Check for http-request del-header or set-header for X-Forwarded-For
+        for directive in section.get("http-request"):
+            args_lower = directive.args.lower()
+            if re.search(r"del-header\s+x-forwarded-for\b", args_lower):
+                xff_reset_found = True
+                evidence_parts.append(
+                    f"{kind} '{name}': http-request del-header X-Forwarded-For "
+                    f"(line {directive.line_number})"
+                )
+            if re.search(r"set-header\s+x-forwarded-for\s+%\[src\]", args_lower):
+                xff_reset_found = True
+                evidence_parts.append(
+                    f"{kind} '{name}': http-request set-header X-Forwarded-For %[src] "
+                    f"(line {directive.line_number})"
+                )
+
+    if not forwardfor_found:
+        return Finding(
+            check_id="HAPR-INF-005",
+            status=Status.NOT_APPLICABLE,
+            message="option forwardfor is not used; XFF spoofing check not applicable.",
+            evidence="No option forwardfor directives found in any section.",
+        )
+
+    if xff_reset_found:
+        return Finding(
+            check_id="HAPR-INF-005",
+            status=Status.PASS,
+            message=(
+                "X-Forwarded-For header is deleted or reset before being set by "
+                "option forwardfor, preventing spoofing."
+            ),
+            evidence="; ".join(evidence_parts),
+        )
+
+    if if_none_found:
+        return Finding(
+            check_id="HAPR-INF-005",
+            status=Status.PARTIAL,
+            message=(
+                "option forwardfor if-none is used, which avoids overriding an "
+                "existing XFF header but does not delete spoofed values. Consider "
+                "adding 'http-request del-header X-Forwarded-For' or "
+                "'http-request set-header X-Forwarded-For %[src]' for stronger "
+                "protection."
+            ),
+            evidence="; ".join(evidence_parts),
+        )
+
+    return Finding(
+        check_id="HAPR-INF-005",
+        status=Status.FAIL,
+        message=(
+            "option forwardfor is used without XFF spoofing prevention. "
+            "Clients can inject arbitrary X-Forwarded-For values. Add "
+            "'http-request del-header X-Forwarded-For' or "
+            "'http-request set-header X-Forwarded-For %[src]' before "
+            "option forwardfor to prevent spoofing."
+        ),
+        evidence="; ".join(evidence_parts),
+    )

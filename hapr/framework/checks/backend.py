@@ -424,3 +424,235 @@ def check_retry_redispatch(config: HAProxyConfig) -> Finding:
         ),
         evidence="Searched defaults and all backend/listen sections; neither directive found.",
     )
+
+
+def check_backend_ssl_verification(config: HAProxyConfig) -> Finding:
+    """HAPR-BKD-006: Check that backend servers with SSL have certificate verification enabled.
+
+    When backend servers use SSL/TLS (``ssl`` option on server lines), they
+    should also have ``verify required`` and a ``ca-file`` configured to
+    ensure that HAProxy validates the backend server's certificate.  Without
+    verification, SSL connections are vulnerable to man-in-the-middle attacks.
+
+    Returns
+    -------
+    Finding
+        PASS           -- All SSL servers have ``verify required`` AND ``ca-file``.
+        PARTIAL        -- Some SSL servers are verified but not all, or
+                          ``verify required`` is present but ``ca-file`` is missing.
+        FAIL           -- SSL servers have ``verify none`` or no verify option.
+        NOT_APPLICABLE -- No servers use SSL.
+    """
+    all_servers = config.all_servers
+    ssl_servers = [s for s in all_servers if s.ssl]
+
+    if not ssl_servers:
+        return Finding(
+            check_id="HAPR-BKD-006",
+            status=Status.NOT_APPLICABLE,
+            message="No backend servers use SSL; certificate verification check is not applicable.",
+            evidence="No server lines with the 'ssl' option found.",
+        )
+
+    fully_verified: list[str] = []
+    partial_verified: list[str] = []
+    unverified: list[str] = []
+    evidence_lines: list[str] = []
+
+    for server in ssl_servers:
+        label = f"{server.name} ({server.address}:{server.port})"
+        verify_val = server.options.get("verify", "").lower()
+        has_ca_file = "ca-file" in server.options
+
+        if verify_val == "required" and has_ca_file:
+            fully_verified.append(label)
+            evidence_lines.append(
+                f"{label}: verify required, ca-file={server.options['ca-file']}"
+            )
+        elif verify_val == "required" and not has_ca_file:
+            partial_verified.append(label)
+            evidence_lines.append(
+                f"{label}: verify required but missing ca-file"
+            )
+        else:
+            # verify none, or no verify option (defaults to none in many configs)
+            unverified.append(label)
+            if verify_val:
+                evidence_lines.append(f"{label}: verify {verify_val} (not required)")
+            else:
+                evidence_lines.append(f"{label}: no verify option set (defaults to none)")
+
+    # All SSL servers are fully verified
+    if not unverified and not partial_verified:
+        return Finding(
+            check_id="HAPR-BKD-006",
+            status=Status.PASS,
+            message="All SSL-enabled backend servers have certificate verification with ca-file configured.",
+            evidence="\n".join(evidence_lines),
+        )
+
+    # Some are fully verified or have partial verification, but not all are unverified
+    if fully_verified or partial_verified:
+        return Finding(
+            check_id="HAPR-BKD-006",
+            status=Status.PARTIAL,
+            message=(
+                "Some SSL-enabled backend servers are missing full certificate verification. "
+                "Ensure all SSL servers have 'verify required' and a 'ca-file' configured."
+            ),
+            evidence="\n".join(evidence_lines),
+        )
+
+    # All SSL servers are unverified
+    return Finding(
+        check_id="HAPR-BKD-006",
+        status=Status.FAIL,
+        message=(
+            "SSL-enabled backend servers do not have certificate verification configured. "
+            "Add 'verify required' and 'ca-file /path/to/ca.pem' to server lines to "
+            "prevent man-in-the-middle attacks on backend connections."
+        ),
+        evidence="\n".join(evidence_lines),
+    )
+
+
+# ---------------------------------------------------------------------------
+# HAPR-CACHE-001  Cache security controls
+# ---------------------------------------------------------------------------
+
+def check_cache_security(config: HAProxyConfig) -> Finding:
+    """HAPR-CACHE-001: Check cache configuration for security controls.
+
+    HAProxy's built-in caching (``cache`` declarations, ``http-request
+    cache-use``, ``http-response cache-store``) should be accompanied by
+    security controls such as ``total-max-size``, ``max-age``, and
+    appropriate ``Cache-Control`` headers to prevent caching of sensitive
+    data or unbounded memory usage.
+
+    Returns PASS if caching is found with both total-max-size and max-age
+    controls, PARTIAL if some controls are present, FAIL if caching is
+    configured without any security controls, and N/A if no caching is
+    detected.
+    """
+    cache_evidence: list[str] = []
+    has_cache_use = False
+    has_cache_store = False
+    has_total_max_size = False
+    has_max_age = False
+    has_cache_control_header = False
+
+    # Check global section for 'cache' declarations
+    for directive in config.global_section.directives:
+        combined = f"{directive.keyword} {directive.args}".strip().lower()
+        if directive.keyword.lower() == "cache":
+            cache_evidence.append(f"cache declaration in global: {directive.keyword} {directive.args}")
+        if "total-max-size" in combined:
+            has_total_max_size = True
+            cache_evidence.append(f"total-max-size in global: {directive.keyword} {directive.args}")
+        if "max-age" in combined:
+            has_max_age = True
+            cache_evidence.append(f"max-age in global: {directive.keyword} {directive.args}")
+
+    # Check all proxy sections for cache-related directives
+    all_sections = (
+        list(config.all_frontends_and_listens)
+        + list(config.backends)
+        + list(config.defaults)
+    )
+
+    for section in all_sections:
+        section_name = getattr(section, "name", "unnamed") or "unnamed"
+
+        for directive in section.directives:
+            keyword_lower = directive.keyword.lower()
+            args_lower = directive.args.lower()
+            combined = f"{keyword_lower} {args_lower}".strip()
+
+            # Detect cache declarations within sections
+            if keyword_lower == "cache":
+                cache_evidence.append(f"cache declaration in '{section_name}'")
+
+            # Detect cache-use and cache-store directives
+            if keyword_lower == "http-request" and "cache-use" in args_lower:
+                has_cache_use = True
+                cache_evidence.append(
+                    f"http-request cache-use in '{section_name}': {directive.args}"
+                )
+            if keyword_lower == "http-response" and "cache-store" in args_lower:
+                has_cache_store = True
+                cache_evidence.append(
+                    f"http-response cache-store in '{section_name}': {directive.args}"
+                )
+
+            # Detect total-max-size and max-age in section directives
+            if "total-max-size" in combined:
+                has_total_max_size = True
+            if "max-age" in combined:
+                has_max_age = True
+
+            # Detect Cache-Control header manipulation
+            if keyword_lower in ("http-response", "http-request"):
+                if "cache-control" in args_lower:
+                    has_cache_control_header = True
+                    cache_evidence.append(
+                        f"Cache-Control header rule in '{section_name}': "
+                        f"{directive.keyword} {directive.args}"
+                    )
+
+    # If no caching is detected at all
+    if not cache_evidence and not has_cache_use and not has_cache_store:
+        return Finding(
+            check_id="HAPR-CACHE-001",
+            status=Status.NOT_APPLICABLE,
+            message="No cache configuration found; cache security check is not applicable.",
+            evidence="No 'cache', 'cache-use', or 'cache-store' directives detected.",
+        )
+
+    # Evaluate security controls
+    controls_found: list[str] = []
+    controls_missing: list[str] = []
+
+    if has_total_max_size:
+        controls_found.append("total-max-size")
+    else:
+        controls_missing.append("total-max-size")
+
+    if has_max_age:
+        controls_found.append("max-age")
+    else:
+        controls_missing.append("max-age")
+
+    if has_cache_control_header:
+        controls_found.append("Cache-Control header rules")
+
+    if has_total_max_size and has_max_age:
+        return Finding(
+            check_id="HAPR-CACHE-001",
+            status=Status.PASS,
+            message="Cache configuration has security controls (total-max-size and max-age).",
+            evidence="; ".join(cache_evidence[:10]),
+        )
+
+    if controls_found:
+        return Finding(
+            check_id="HAPR-CACHE-001",
+            status=Status.PARTIAL,
+            message=(
+                f"Cache configuration has some security controls "
+                f"({', '.join(controls_found)}) but is missing: "
+                f"{', '.join(controls_missing)}."
+            ),
+            evidence="; ".join(cache_evidence[:10]),
+        )
+
+    return Finding(
+        check_id="HAPR-CACHE-001",
+        status=Status.FAIL,
+        message=(
+            "Cache is configured without security controls. "
+            "Add 'total-max-size' to limit memory usage and 'max-age' to "
+            "control cache lifetime. Consider adding Cache-Control headers "
+            "to prevent caching of sensitive responses."
+        ),
+        evidence="; ".join(cache_evidence[:10]) if cache_evidence else "Cache directives found without controls.",
+    )

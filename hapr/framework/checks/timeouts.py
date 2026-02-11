@@ -415,3 +415,47 @@ def check_timeout_values_reasonable(config: HAProxyConfig) -> Finding:
         message="All configured timeout values are within reasonable bounds.",
         evidence=evidence_str,
     )
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TMO-006 — http-keep-alive timeout
+# ---------------------------------------------------------------------------
+
+def check_http_keepalive_timeout(config: HAProxyConfig) -> Finding:
+    """Check that ``timeout http-keep-alive`` is configured.
+
+    The ``http-keep-alive`` timeout controls how long HAProxy waits for a
+    new HTTP request on a keep-alive connection.  Without it, idle
+    keep-alive connections may persist longer than intended, wasting
+    resources and increasing exposure to slow attacks.
+
+    Returns
+    -------
+    Finding
+        PASS -- ``timeout http-keep-alive`` is configured.
+        FAIL -- ``timeout http-keep-alive`` is not found.
+    """
+    hits = _find_timeout(config, "http-keep-alive", include_frontends=True)
+
+    if hits:
+        evidence = "; ".join(
+            f"{kind} '{name}': timeout http-keep-alive {val}" if name else f"{kind}: timeout http-keep-alive {val}"
+            for kind, name, val in hits
+        )
+        return Finding(
+            check_id="HAPR-TMO-006",
+            status=Status.PASS,
+            message="HTTP keep-alive timeout is configured.",
+            evidence=evidence,
+        )
+
+    return Finding(
+        check_id="HAPR-TMO-006",
+        status=Status.FAIL,
+        message=(
+            "No 'timeout http-keep-alive' directive found. Without it, idle "
+            "keep-alive connections may persist longer than intended, wasting "
+            "resources and increasing exposure to slow attacks."
+        ),
+        evidence="timeout http-keep-alive not found in defaults, global, frontends, or listen sections.",
+    )
