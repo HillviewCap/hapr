@@ -364,6 +364,7 @@ checks:
     category: access
     severity: high
     weight: 7
+    requires_mode: http
     description: >
       Verify that administrative paths such as /admin, /manager, and
       /haproxy?stats are restricted by IP address or authentication.
@@ -480,6 +481,7 @@ checks:
     category: headers
     severity: medium
     weight: 4
+    requires_mode: http
     description: >
       Verify that the X-Frame-Options header is set to DENY or SAMEORIGIN
       to prevent clickjacking attacks.
@@ -505,6 +507,7 @@ checks:
     category: headers
     severity: medium
     weight: 4
+    requires_mode: http
     description: >
       Verify that a Content-Security-Policy header is configured to restrict
       the sources from which content can be loaded.
@@ -532,6 +535,7 @@ checks:
     category: headers
     severity: medium
     weight: 4
+    requires_mode: http
     description: >
       Verify that the X-Content-Type-Options header is set to nosniff to
       prevent MIME type confusion attacks.
@@ -558,6 +562,7 @@ checks:
     category: headers
     severity: low
     weight: 2
+    requires_mode: http
     description: >
       Verify that a Referrer-Policy header is configured to control how
       much referrer information is sent with requests.
@@ -583,6 +588,7 @@ checks:
     category: headers
     severity: low
     weight: 2
+    requires_mode: http
     description: >
       Verify that a Permissions-Policy header is configured to restrict
       access to browser features and APIs.
@@ -610,6 +616,7 @@ checks:
     category: headers
     severity: low
     weight: 2
+    requires_mode: http
     description: >
       Verify that the X-XSS-Protection header is either absent, set to 0,
       or not set to 1; mode=block. This header is deprecated and enabling
@@ -641,6 +648,7 @@ checks:
     category: request
     severity: medium
     weight: 4
+    requires_mode: http
     description: >
       Verify that the maximum allowed request body size is explicitly limited
       to prevent resource exhaustion from oversized payloads.
@@ -667,6 +675,7 @@ checks:
     category: request
     severity: low
     weight: 2
+    requires_mode: http
     description: >
       Verify that URL length limits are configured to reject abnormally
       long request URIs that may indicate attacks.
@@ -693,6 +702,7 @@ checks:
     category: request
     severity: medium
     weight: 4
+    requires_mode: http
     description: >
       Verify that only required HTTP methods are allowed and dangerous or
       unnecessary methods such as TRACE, DELETE, and OPTIONS are restricted.
@@ -722,6 +732,7 @@ checks:
     category: request
     severity: low
     weight: 2
+    requires_mode: http
     description: >
       Verify that request header size limits are configured to prevent
       abuse through oversized headers.
@@ -897,6 +908,7 @@ checks:
     category: disclosure
     severity: high
     weight: 7
+    requires_mode: http
     description: >
       Verify that the Server response header is removed or replaced to
       prevent disclosure of backend server software and versions.
@@ -952,6 +964,7 @@ checks:
     category: disclosure
     severity: medium
     weight: 4
+    requires_mode: http
     description: >
       Verify that HAProxy version information is not disclosed in HTTP
       headers, error pages, or other responses.
@@ -1340,6 +1353,7 @@ checks:
     category: frontend
     severity: high
     weight: 7
+    requires_mode: http
     description: >
       Verify that HTTP frontends redirect to HTTPS to ensure all traffic
       is encrypted in transit.
@@ -1369,6 +1383,7 @@ checks:
     category: frontend
     severity: medium
     weight: 4
+    requires_mode: http
     description: >
       Verify that web application firewall integration is present, such as
       SPOE-based ModSecurity or similar WAF engine integration.
@@ -1396,6 +1411,7 @@ checks:
     category: frontend
     severity: medium
     weight: 4
+    requires_mode: http
     description: >
       Verify that ACL rules or WAF integration provides protection against
       SQL injection patterns in request parameters and URLs.
@@ -1425,6 +1441,7 @@ checks:
     category: frontend
     severity: medium
     weight: 4
+    requires_mode: http
     description: >
       Verify that ACL rules or WAF integration provides protection against
       cross-site scripting patterns in request data.

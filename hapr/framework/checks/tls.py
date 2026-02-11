@@ -17,13 +17,30 @@ _WEAK_VERSIONS = {"sslv3", "tlsv1.0", "tlsv10", "tlsv1.1", "tlsv11"}
 # Versions considered acceptable (TLS 1.2+)
 _STRONG_VERSIONS = {"tlsv1.2", "tlsv12", "tlsv1.3", "tlsv13"}
 
-# Regex fragments that identify known-weak cipher components
-_WEAK_CIPHER_PATTERNS = re.compile(
-    r"(?:^|[:\+!,\s])"
-    r"(?:DES|3DES|RC4|MD5|NULL|EXPORT|aNULL|eNULL|LOW|DES-CBC3)"
-    r"(?:[:\+!,\s]|$)",
-    re.IGNORECASE,
-)
+# Keywords that identify known-weak cipher components
+_WEAK_CIPHER_KEYWORDS = {
+    "DES", "3DES", "RC4", "MD5", "NULL", "EXPORT",
+    "ANULL", "ENULL", "LOW", "DES-CBC3", "DES-CBC",
+    "RC2", "SEED", "IDEA", "CAMELLIA128", "AECDH", "ADH",
+}
+
+
+def _find_weak_ciphers(cipher_string: str) -> list[str]:
+    """Split a cipher string on ``:``, return individual ciphers that are weak.
+
+    Ciphers prefixed with ``!`` are exclusions and are skipped.
+    """
+    weak: list[str] = []
+    for cipher in cipher_string.split(":"):
+        c = cipher.strip()
+        if not c or c.startswith("!"):
+            continue
+        c_upper = c.upper()
+        for keyword in _WEAK_CIPHER_KEYWORDS:
+            if keyword in c_upper:
+                weak.append(c)
+                break
+    return weak
 
 
 # ---------------------------------------------------------------------------
@@ -152,10 +169,10 @@ def check_no_weak_ciphers(config: HAProxyConfig) -> Finding:
 
     # Global default ciphers
     for d in g.get("ssl-default-bind-ciphers"):
-        matches = _WEAK_CIPHER_PATTERNS.findall(d.args)
+        matches = _find_weak_ciphers(d.args)
         if matches:
             weak_hits.append(
-                f"global ssl-default-bind-ciphers: {', '.join(m.strip() for m in matches)}"
+                f"global ssl-default-bind-ciphers: {', '.join(matches)}"
             )
 
     # Per-bind ciphers
@@ -164,10 +181,10 @@ def check_no_weak_ciphers(config: HAProxyConfig) -> Finding:
             continue
         cipher_str = bind.options.get("ciphers", "") or bind.options.get("ssl-default-bind-ciphers", "")
         if cipher_str:
-            matches = _WEAK_CIPHER_PATTERNS.findall(cipher_str)
+            matches = _find_weak_ciphers(cipher_str)
             if matches:
                 weak_hits.append(
-                    f"bind {bind.raw}: {', '.join(m.strip() for m in matches)}"
+                    f"bind {bind.raw}: {', '.join(matches)}"
                 )
 
     if weak_hits:

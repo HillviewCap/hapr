@@ -10,6 +10,13 @@ import re
 
 from ...models import HAProxyConfig, Finding, Status
 
+# Common weak passwords that should be flagged in stats auth
+_WEAK_PASSWORDS = {
+    "admin", "password", "123456", "haproxy", "changeme", "default",
+    "pass", "test", "1234", "12345678", "root", "secret", "abc123",
+    "letmein", "welcome", "monkey", "master", "qwerty",
+}
+
 
 def check_acls_defined(config: HAProxyConfig) -> Finding:
     """HAPR-ACL-001: Check that at least some frontends or listens have ACL directives.
@@ -229,6 +236,7 @@ def check_stats_access_restricted(config: HAProxyConfig) -> Finding:
     stats_enabled_sections: list[str] = []
     secured_sections: list[str] = []
     unsecured_sections: list[str] = []
+    weak_password_issues: list[str] = []
 
     # Check all sections that can carry stats directives
     all_sections = (
@@ -256,6 +264,22 @@ def check_stats_access_restricted(config: HAProxyConfig) -> Finding:
                 has_stats_uri = True
             elif keyword == "stats" and args_lower.startswith("auth"):
                 has_stats_auth = True
+                # Validate password strength: "auth user:password"
+                auth_value = directive.args[len("auth"):].strip()
+                if ":" in auth_value:
+                    username, password = auth_value.split(":", 1)
+                    if len(password) < 8:
+                        weak_password_issues.append(
+                            f"[{section_label}] stats auth password too short ({len(password)} chars)"
+                        )
+                    elif password.lower() in _WEAK_PASSWORDS:
+                        weak_password_issues.append(
+                            f"[{section_label}] stats auth uses common weak password"
+                        )
+                    elif username == password:
+                        weak_password_issues.append(
+                            f"[{section_label}] stats auth username equals password"
+                        )
             elif keyword == "stats" and args_lower.startswith("admin"):
                 # stats admin often implies there is an auth requirement
                 pass
@@ -289,6 +313,17 @@ def check_stats_access_restricted(config: HAProxyConfig) -> Finding:
                 "Add 'stats auth <user>:<password>' or ACL-based restrictions."
             ),
             evidence=f"Unsecured stats sections: {', '.join(unsecured_sections)}",
+        )
+
+    if weak_password_issues:
+        return Finding(
+            check_id="HAPR-ACL-005",
+            status=Status.PARTIAL,
+            message=(
+                "Stats endpoint is secured with authentication but the password is weak. "
+                "Use a strong password (8+ characters, not a common word)."
+            ),
+            evidence="; ".join(weak_password_issues),
         )
 
     return Finding(

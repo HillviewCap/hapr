@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import os
+
 from ...models import Finding, HAProxyConfig, Status
+
+# Directories considered world-writable / insecure for socket placement
+_INSECURE_SOCKET_DIRS = {"/tmp", "/var/tmp", "/dev/shm"}
 
 
 def check_secure_defaults(config: HAProxyConfig) -> Finding:
@@ -81,6 +86,16 @@ def check_stats_socket_permissions(config: HAProxyConfig) -> Finding:
     issues = []
     for sd in socket_directives:
         args = sd.args
+        # Validate socket path — second token after "socket"
+        tokens = args.split()
+        if len(tokens) >= 2:
+            socket_path = tokens[0]  # first token after "socket" keyword
+            socket_dir = os.path.dirname(socket_path)
+            if socket_dir in _INSECURE_SOCKET_DIRS:
+                issues.append(
+                    f"Stats socket in world-writable directory ({socket_dir}): {args}"
+                )
+
         if "mode " not in args:
             issues.append(f"Stats socket missing mode restriction: {args}")
         elif "mode 600" not in args and "mode 660" not in args:

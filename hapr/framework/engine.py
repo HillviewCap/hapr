@@ -61,6 +61,7 @@ def run_audit(
     version_available = cve_results is not None and cve_results.version != ""
 
     findings: list[Finding] = []
+    has_http = _config_has_http_mode(config)
 
     for check_def in checks:
         requires = check_def.get("requires")
@@ -69,6 +70,21 @@ def run_audit(
         if requires == "scanner" and not scanner_available:
             continue
         if requires == "version" and not version_available:
+            continue
+
+        # Skip HTTP-only checks when config is TCP-only
+        requires_mode = check_def.get("requires_mode")
+        if requires_mode == "http" and not has_http:
+            findings.append(Finding(
+                check_id=check_def["id"],
+                status=Status.NOT_APPLICABLE,
+                message="Check requires HTTP mode but config is TCP-only.",
+                severity=Severity(check_def.get("severity", "info")),
+                title=check_def.get("title", ""),
+                category=check_def.get("category", ""),
+                remediation=check_def.get("remediation", ""),
+                weight=check_def.get("weight", 0),
+            ))
             continue
 
         finding = _execute_check(
@@ -92,6 +108,33 @@ def run_audit(
         scan_performed=scanner_available,
         cve_check_performed=version_available,
     )
+
+
+def _config_has_http_mode(config: HAProxyConfig) -> bool:
+    """Return True if any section uses ``mode http`` or has no explicit mode.
+
+    HAProxy defaults to HTTP mode when no ``mode`` directive is present, so
+    a config without any explicit mode is treated as having HTTP mode.
+    """
+    sections = (
+        list(config.defaults)
+        + list(config.frontends)
+        + list(config.listens)
+    )
+
+    if not sections:
+        # No sections at all — treat as HTTP (HAProxy default)
+        return True
+
+    for section in sections:
+        mode_value = section.get_value("mode") if hasattr(section, "get_value") else None
+        if mode_value is None:
+            # No explicit mode → HAProxy defaults to HTTP
+            return True
+        if mode_value.strip().lower() == "http":
+            return True
+
+    return False
 
 
 def _execute_check(
