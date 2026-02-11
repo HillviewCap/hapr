@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 
 import click
@@ -27,13 +28,26 @@ console = Console()
               help="Path to haproxy binary for version detection.")
 @click.option("--stats-url", default=None,
               help="URL to HAProxy stats page for version detection.")
+@click.option("--log-level",
+              type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                                case_sensitive=False),
+              default="WARNING",
+              help="Set logging verbosity (default: WARNING).")
+@click.option("--log-file", type=click.Path(), default=None,
+              help="Write log output to a file.")
 @click.pass_context
-def cli(ctx, baseline, nvd_api_key, haproxy_socket, haproxy_bin, stats_url):
+def cli(ctx, baseline, nvd_api_key, haproxy_socket, haproxy_bin, stats_url,
+        log_level, log_file):
     """HAPR — HAProxy Audit & Reporting Tool.
 
     Security baseline scoring, TLS scanning, CVE checking,
     and interactive reporting for HAProxy configurations.
     """
+    logging.basicConfig(
+        level=getattr(logging, log_level.upper()),
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+        filename=log_file,
+    )
     ctx.ensure_object(dict)
     ctx.obj["baseline"] = baseline
     ctx.obj["nvd_api_key"] = nvd_api_key

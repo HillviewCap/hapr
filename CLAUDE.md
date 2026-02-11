@@ -25,7 +25,7 @@ hapr audit examples/secure.cfg
 hapr audit examples/secure.cfg --full -o report.html
 ```
 
-No linter, formatter, or CI is configured. The only dev dependency is pytest.
+CI runs on GitHub Actions (`.github/workflows/ci.yml`) across Python 3.10–3.12. The only dev dependency is pytest.
 
 ## Architecture
 
