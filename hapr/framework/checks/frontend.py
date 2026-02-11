@@ -121,19 +121,22 @@ def check_maxconn_set(config: HAProxyConfig) -> Finding:
     )
 
 
+_HTTP_PORTS = {80, 8080, 8000, 8888}
+
+
 def check_http_to_https_redirect(config: HAProxyConfig) -> Finding:
-    """HAPR-FRT-003: Check for HTTP to HTTPS redirect on port 80 frontends.
+    """HAPR-FRT-003: Check for HTTP to HTTPS redirect on HTTP frontends.
 
-    Frontends that bind on port 80 should redirect clients to HTTPS to
-    ensure all traffic is encrypted.  This check looks for
-    ``redirect scheme https`` or ``http-request redirect scheme https``
-    directives in port-80 frontends.
+    Frontends that bind on common HTTP ports (80, 8080, 8000, 8888)
+    without SSL should redirect clients to HTTPS to ensure all traffic
+    is encrypted.  This check looks for ``redirect scheme https`` or
+    ``http-request redirect scheme https`` directives.
 
-    Returns PASS if a redirect is found for all port-80 frontends, N/A
-    if no frontends bind on port 80, and FAIL if a port-80 frontend
+    Returns PASS if a redirect is found for all HTTP frontends, N/A
+    if no frontends bind on HTTP ports, and FAIL if an HTTP frontend
     exists without a redirect.
     """
-    port_80_sections: list[str] = []
+    http_sections: list[str] = []
     redirected_sections: list[str] = []
     non_redirected_sections: list[str] = []
     evidence_lines: list[str] = []
@@ -141,17 +144,17 @@ def check_http_to_https_redirect(config: HAProxyConfig) -> Finding:
     for section in config.all_frontends_and_listens:
         section_label = section.name or "(unnamed)"
 
-        # Determine if this section binds on port 80
-        binds_port_80 = False
+        # Determine if this section binds on a common HTTP port without SSL
+        binds_http_port = False
         for bind in section.binds:
-            if bind.port == 80:
-                binds_port_80 = True
+            if bind.port in _HTTP_PORTS and not bind.ssl:
+                binds_http_port = True
                 break
 
-        if not binds_port_80:
+        if not binds_http_port:
             continue
 
-        port_80_sections.append(section_label)
+        http_sections.append(section_label)
 
         # Look for redirect directives
         has_redirect = False
@@ -182,12 +185,12 @@ def check_http_to_https_redirect(config: HAProxyConfig) -> Finding:
         else:
             non_redirected_sections.append(section_label)
 
-    if not port_80_sections:
+    if not http_sections:
         return Finding(
             check_id="HAPR-FRT-003",
             status=Status.NOT_APPLICABLE,
-            message="No frontends bind on port 80; HTTP-to-HTTPS redirect not applicable.",
-            evidence="No bind directives with port 80 found in any frontend or listen section.",
+            message="No frontends bind on HTTP ports; HTTP-to-HTTPS redirect not applicable.",
+            evidence="No non-SSL bind directives on HTTP ports (80, 8080, 8000, 8888) found.",
         )
 
     if non_redirected_sections:
@@ -195,12 +198,12 @@ def check_http_to_https_redirect(config: HAProxyConfig) -> Finding:
             check_id="HAPR-FRT-003",
             status=Status.FAIL,
             message=(
-                "Port 80 frontends found without HTTP-to-HTTPS redirect. "
+                "HTTP frontends found without HTTP-to-HTTPS redirect. "
                 "Add 'redirect scheme https code 301' or "
                 "'http-request redirect scheme https' to force encrypted connections."
             ),
             evidence=(
-                f"Port 80 sections without redirect: {', '.join(non_redirected_sections)}"
+                f"HTTP sections without redirect: {', '.join(non_redirected_sections)}"
                 + (f"\nRedirected: {', '.join(redirected_sections)}" if redirected_sections else "")
             ),
         )
@@ -208,7 +211,7 @@ def check_http_to_https_redirect(config: HAProxyConfig) -> Finding:
     return Finding(
         check_id="HAPR-FRT-003",
         status=Status.PASS,
-        message="All port 80 frontends redirect HTTP traffic to HTTPS.",
+        message="All HTTP frontends redirect traffic to HTTPS.",
         evidence="\n".join(evidence_lines),
     )
 

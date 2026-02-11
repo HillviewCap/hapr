@@ -111,28 +111,41 @@ def run_audit(
 
 
 def _config_has_http_mode(config: HAProxyConfig) -> bool:
-    """Return True if any section uses ``mode http`` or has no explicit mode.
+    """Return True if any section uses ``mode http`` (explicitly or inherited).
 
-    HAProxy defaults to HTTP mode when no ``mode`` directive is present, so
-    a config without any explicit mode is treated as having HTTP mode.
+    HAProxy defaults to HTTP mode when no ``mode`` directive is present.
+    Frontends/listens inherit mode from the defaults section, so we first
+    determine the effective default mode, then check each frontend/listen.
     """
-    sections = (
-        list(config.defaults)
-        + list(config.frontends)
-        + list(config.listens)
-    )
+    # Determine the effective default mode
+    default_mode: str | None = None
+    for d in config.defaults:
+        val = d.get_value("mode")
+        if val is not None:
+            default_mode = val.strip().lower()
 
-    if not sections:
+    # Check frontends and listens for their effective mode
+    proxy_sections = list(config.frontends) + list(config.listens)
+
+    if not proxy_sections and not config.defaults:
         # No sections at all — treat as HTTP (HAProxy default)
         return True
 
-    for section in sections:
+    for section in proxy_sections:
         mode_value = section.get_value("mode") if hasattr(section, "get_value") else None
-        if mode_value is None:
-            # No explicit mode → HAProxy defaults to HTTP
-            return True
-        if mode_value.strip().lower() == "http":
-            return True
+        if mode_value is not None:
+            if mode_value.strip().lower() == "http":
+                return True
+        else:
+            # Inherits from defaults; if defaults is tcp, this is tcp
+            effective = default_mode or "http"  # HAProxy defaults to http
+            if effective == "http":
+                return True
+
+    # If no proxy sections exist, check defaults alone
+    if not proxy_sections:
+        effective = default_mode or "http"
+        return effective == "http"
 
     return False
 

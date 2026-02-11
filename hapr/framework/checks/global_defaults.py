@@ -86,10 +86,11 @@ def check_stats_socket_permissions(config: HAProxyConfig) -> Finding:
     issues = []
     for sd in socket_directives:
         args = sd.args
-        # Validate socket path — second token after "socket"
+        # Validate socket path — args format: "socket /path/to/sock ..."
+        # tokens[0] is "socket", tokens[1] is the actual path.
         tokens = args.split()
         if len(tokens) >= 2:
-            socket_path = tokens[0]  # first token after "socket" keyword
+            socket_path = tokens[1]
             socket_dir = os.path.dirname(socket_path)
             if socket_dir in _INSECURE_SOCKET_DIRS:
                 issues.append(

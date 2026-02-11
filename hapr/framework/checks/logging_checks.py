@@ -46,61 +46,76 @@ def check_log_format(config: HAProxyConfig) -> Finding:
     """HAPR-LOG-002: Check for detailed log format configuration.
 
     The default HAProxy log format is minimal.  A custom ``log-format``
-    directive or ``option httplog`` provides much richer information
-    including timers, status codes, and headers.
+    directive provides the richest information including timers, status
+    codes, and headers.  ``option httplog`` is better than the default but
+    still limited compared to a custom format.
 
     This check searches defaults, frontends, and listen sections for:
 
-    * ``log-format`` directives (custom format string).
-    * ``option httplog`` (built-in detailed HTTP log format).
+    * ``log-format`` directives (custom format string) → PASS.
+    * ``option httplog`` (built-in detailed HTTP log format) → PARTIAL.
 
-    Returns PASS if detailed logging is found, FAIL if only basic logging.
+    Returns PASS if a custom log-format is found, PARTIAL if only
+    ``option httplog`` is present, FAIL if neither is found.
     """
-    evidence_parts: list[str] = []
+    custom_format_parts: list[str] = []
+    httplog_parts: list[str] = []
 
     # Check defaults
     for section in config.defaults:
         section_label = f"defaults({section.name or 'unnamed'})"
         for directive in section.get("log-format"):
-            evidence_parts.append(
+            custom_format_parts.append(
                 f"Custom log-format in {section_label}: {directive.args}"
             )
         for directive in section.get("option"):
             if "httplog" in directive.args.lower():
-                evidence_parts.append(
+                httplog_parts.append(
                     f"option httplog in {section_label}"
                 )
 
     # Check frontends
     for section in config.frontends:
         for directive in section.get("log-format"):
-            evidence_parts.append(
+            custom_format_parts.append(
                 f"Custom log-format in frontend '{section.name}': {directive.args}"
             )
         for directive in section.get("option"):
             if "httplog" in directive.args.lower():
-                evidence_parts.append(
+                httplog_parts.append(
                     f"option httplog in frontend '{section.name}'"
                 )
 
     # Check listen sections
     for section in config.listens:
         for directive in section.get("log-format"):
-            evidence_parts.append(
+            custom_format_parts.append(
                 f"Custom log-format in listen '{section.name}': {directive.args}"
             )
         for directive in section.get("option"):
             if "httplog" in directive.args.lower():
-                evidence_parts.append(
+                httplog_parts.append(
                     f"option httplog in listen '{section.name}'"
                 )
 
-    if evidence_parts:
+    if custom_format_parts:
         return Finding(
             check_id="HAPR-LOG-002",
             status=Status.PASS,
-            message="Detailed log format is configured.",
-            evidence="; ".join(evidence_parts),
+            message="Custom log-format is configured for detailed security logging.",
+            evidence="; ".join(custom_format_parts + httplog_parts),
+        )
+
+    if httplog_parts:
+        return Finding(
+            check_id="HAPR-LOG-002",
+            status=Status.PARTIAL,
+            message=(
+                "option httplog is configured but a custom log-format string "
+                "would provide richer security-relevant fields (client IP, "
+                "request timers, captured headers)."
+            ),
+            evidence="; ".join(httplog_parts),
         )
 
     return Finding(

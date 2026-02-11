@@ -180,15 +180,34 @@ def check_backend_ssl(config: HAProxyConfig) -> Finding:
 
     ssl_servers: list[str] = []
     non_ssl_servers: list[str] = []
+    unverified_servers: list[str] = []
 
     for server in all_servers:
         label = f"{server.name} ({server.address}:{server.port})"
         if server.ssl:
             ssl_servers.append(label)
+            # Check for 'verify none' — SSL without certificate verification
+            verify_val = server.options.get("verify", "").lower()
+            if verify_val == "none":
+                unverified_servers.append(label)
         else:
             non_ssl_servers.append(label)
 
     if not non_ssl_servers:
+        if unverified_servers:
+            return Finding(
+                check_id="HAPR-BKD-003",
+                status=Status.PARTIAL,
+                message=(
+                    "All backend servers use SSL/TLS but some have certificate "
+                    "verification disabled (verify none). This makes connections "
+                    "vulnerable to man-in-the-middle attacks."
+                ),
+                evidence=(
+                    f"SSL-enabled servers: {', '.join(ssl_servers)}; "
+                    f"Verify disabled: {', '.join(unverified_servers)}"
+                ),
+            )
         return Finding(
             check_id="HAPR-BKD-003",
             status=Status.PASS,
@@ -204,6 +223,7 @@ def check_backend_ssl(config: HAProxyConfig) -> Finding:
             evidence=(
                 f"SSL-enabled: {', '.join(ssl_servers)}; "
                 f"Without SSL: {', '.join(non_ssl_servers)}"
+                + (f"; Verify disabled: {', '.join(unverified_servers)}" if unverified_servers else "")
             ),
         )
 
