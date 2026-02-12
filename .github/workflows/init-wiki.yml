@@ -16,21 +16,12 @@ jobs:
         run: |
           mkdir -p /tmp/wiki-src
 
-          # Create Home.md (wiki landing page)
-          printf '%s\n' \
-            '# HAPR Wiki' \
-            '' \
-            '**HAPR** (HAProxy Audit & Reporting Tool) is a Python CLI that audits HAProxy configurations against a security baseline across 13 categories. It parses configs, scores them, optionally performs live TLS scanning and CVE lookups, generates topology graphs, and produces self-contained HTML reports.' \
-            '' \
-            '## Research Documents' \
-            '' \
-            '- [Advanced Security Features Research](Advanced-Security-Features-Research) — In-depth research on HAProxy advanced security features including SPOE/SPOA, Lua scripting, mTLS, JWT validation, HTTP/2 hardening, and more, organized by assessment tier.' \
-            '- [Gap Assessment Report](Gap-Assessment-Report) — Comprehensive gap assessment of the HAPR security baseline against HAProxy official documentation, DISA STIG, NIST, OWASP, PCI DSS, and other industry frameworks. Includes tiered level definitions, reclassification recommendations, and an implementation roadmap.' \
-            > /tmp/wiki-src/Home.md
-
-          # Copy research documents as wiki pages
-          cp docs/advanced-security-features-research.md /tmp/wiki-src/Advanced-Security-Features-Research.md
-          cp docs/gap-assessment-report.md /tmp/wiki-src/Gap-Assessment-Report.md
+          # Copy wiki pages from docs/
+          cp docs/Home.md /tmp/wiki-src/Home.md
+          cp docs/HAPR-User-Guide.md /tmp/wiki-src/HAPR-User-Guide.md
+          cp docs/Understanding-the-Report.md /tmp/wiki-src/Understanding-the-Report.md
+          cp docs/HAPR-Framework.md /tmp/wiki-src/HAPR-Framework.md
+          cp docs/HAProxy-Security-Guide.md /tmp/wiki-src/HAProxy-Security-Guide.md
 
           ls -la /tmp/wiki-src/
 
