@@ -471,7 +471,7 @@ def check_xff_configured(config: HAProxyConfig) -> Finding:
 
 
 # Wildcard bind addresses that indicate binding to all interfaces.
-_WILDCARD_ADDRESSES = {"", "*", "0.0.0.0", "::", "::0"}
+_WILDCARD_ADDRESSES = {"", "*", "0.0.0.0", "::", "::0"}  # nosec B104 — detection patterns, not actual binds
 
 
 def check_bind_address_restrictions(config: HAProxyConfig) -> Finding:

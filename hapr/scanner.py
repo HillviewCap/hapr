@@ -53,7 +53,7 @@ def scan_targets(
         for bind in config.all_binds:
             if bind.ssl and bind.port:
                 addr = bind.address or "127.0.0.1"
-                if addr in ("0.0.0.0", "*", ""):
+                if addr in ("0.0.0.0", "*", ""):  # nosec B104 — replacing wildcard with localhost
                     addr = "127.0.0.1"
                 t = f"{addr}:{bind.port}"
                 if t not in all_targets:

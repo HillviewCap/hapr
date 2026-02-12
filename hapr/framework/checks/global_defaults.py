@@ -8,7 +8,7 @@ import re
 from ...models import Finding, HAProxyConfig, Status
 
 # Directories considered world-writable / insecure for socket placement
-_INSECURE_SOCKET_DIRS = ("/tmp", "/var/tmp", "/dev/shm")
+_INSECURE_SOCKET_DIRS = ("/tmp", "/var/tmp", "/dev/shm")  # nosec B108 — detection patterns, not actual usage
 
 # Regex for IPv4 addresses (e.g. 192.168.1.1)
 _IPV4_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")

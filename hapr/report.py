@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.resources
 from pathlib import Path
 
 import plotly.graph_objects as go
@@ -9,8 +10,6 @@ from jinja2 import Environment, FileSystemLoader
 
 from .models import AuditResult, HAProxyConfig
 from .visualizer import topology_to_html_div
-
-_TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
 
 
 def generate_report(
@@ -29,25 +28,27 @@ def generate_report(
     output_path:
         File path to write the HTML report.
     """
-    env = Environment(
-        loader=FileSystemLoader(str(_TEMPLATE_DIR)),
-        autoescape=True,
-    )
-    template = env.get_template("report.html.j2")
+    ref = importlib.resources.files("hapr.templates").joinpath("report.html.j2")
+    with importlib.resources.as_file(ref) as template_path:
+        env = Environment(
+            loader=FileSystemLoader(str(template_path.parent)),
+            autoescape=True,
+        )
+        template = env.get_template("report.html.j2")
 
-    # Build the topology graph HTML div
-    topology_html = topology_to_html_div(config, audit_result)
+        # Build the topology graph HTML div
+        topology_html = topology_to_html_div(config, audit_result)
 
-    # Build the score breakdown chart
-    score_chart_html = _build_score_chart(audit_result)
+        # Build the score breakdown chart
+        score_chart_html = _build_score_chart(audit_result)
 
-    html = template.render(
-        result=audit_result,
-        topology_html=topology_html,
-        score_chart_html=score_chart_html,
-    )
+        html = template.render(
+            result=audit_result,
+            topology_html=topology_html,
+            score_chart_html=score_chart_html,
+        )
 
-    Path(output_path).write_text(html, encoding="utf-8")
+        Path(output_path).write_text(html, encoding="utf-8")
 
 
 def _build_score_chart(audit_result: AuditResult) -> str:

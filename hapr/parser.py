@@ -249,7 +249,7 @@ def _parse_address(bind: BindLine, addr_token: str) -> None:
 
     if ":" in addr_token:
         parts = addr_token.rsplit(":", 1)
-        bind.address = parts[0] if parts[0] != "*" else "0.0.0.0"
+        bind.address = parts[0] if parts[0] != "*" else "0.0.0.0"  # nosec B104 — parsing config, not binding
         try:
             bind.port = int(parts[1])
         except ValueError:

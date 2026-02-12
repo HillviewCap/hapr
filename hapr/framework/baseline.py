@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
+import importlib.resources
 from pathlib import Path
 from typing import Any
 
 import yaml
-
-# Default baseline path (relative to project root)
-_DEFAULT_BASELINE = Path(__file__).resolve().parent.parent.parent / "framework" / "hapr-baseline.yaml"
 
 
 def load_baseline(path: str | Path | None = None) -> dict[str, Any]:
@@ -18,17 +16,22 @@ def load_baseline(path: str | Path | None = None) -> dict[str, Any]:
     ----------
     path:
         Path to a custom baseline YAML.  When *None* the built-in
-        ``framework/hapr-baseline.yaml`` is used.
+        ``hapr/data/hapr-baseline.yaml`` is used.
     """
-    p = Path(path) if path else _DEFAULT_BASELINE
-    if not p.exists():
-        raise FileNotFoundError(f"Baseline file not found: {p}")
-
-    with p.open("r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh)
+    if path:
+        p = Path(path)
+        if not p.exists():
+            raise FileNotFoundError(f"Baseline file not found: {p}")
+        with p.open("r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh)
+    else:
+        ref = importlib.resources.files("hapr.data").joinpath("hapr-baseline.yaml")
+        with importlib.resources.as_file(ref) as p:
+            with p.open("r", encoding="utf-8") as fh:
+                data = yaml.safe_load(fh)
 
     if not isinstance(data, dict) or "checks" not in data:
-        raise ValueError(f"Invalid baseline file — missing 'checks' key: {p}")
+        raise ValueError(f"Invalid baseline file — missing 'checks' key: {path or 'built-in'}")
 
     return data
 

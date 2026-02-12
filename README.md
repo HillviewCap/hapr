@@ -17,8 +17,17 @@ No CIS benchmark or automated security audit tool exists for HAProxy — despite
 ## Installation
 
 ```bash
-# From PyPI
+# From PyPI (core — config audit, scoring, reports)
 pip install hapr
+
+# With live TLS scanning (sslyze)
+pip install "hapr[scan]"
+
+# With CVE checking (nvdlib)
+pip install "hapr[cve]"
+
+# Everything (TLS + CVE)
+pip install "hapr[full]"
 
 # From source (editable, with dev dependencies)
 pip install -e ".[dev]"
@@ -211,6 +220,10 @@ hapr/
 ├── scanner.py                      # sslyze-based live TLS scanning
 ├── report.py                       # Jinja2 HTML report renderer
 ├── visualizer.py                   # Plotly topology graph generator
+├── data/
+│   └── hapr-baseline.yaml          # Single source of truth (103 check definitions)
+├── templates/
+│   └── report.html.j2              # Jinja2 HTML report template
 └── framework/
     ├── engine.py                   # Audit pipeline, scoring, tier filtering
     └── checks/                     # 13 check modules (pure functions)
@@ -227,8 +240,6 @@ hapr/
         ├── global_defaults.py      # HAPR-GBL + LUA/PEER: global settings
         ├── tls_live.py             # HAPR-SCAN: live TLS scan checks
         └── cve.py                  # HAPR-CVE: known vulnerability checks
-framework/
-└── hapr-baseline.yaml              # Single source of truth (103 check definitions)
 ```
 
 ## License

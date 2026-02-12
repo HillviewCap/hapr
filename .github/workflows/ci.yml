@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_call:
 
 jobs:
   test:
@@ -40,3 +41,19 @@ jobs:
             exit 1
           fi
           echo "Versions match: $PYPROJECT_VER"
+
+  sast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install bandit
+        run: pip install bandit>=1.7
+
+      - name: Run bandit
+        run: bandit -r hapr/ -c pyproject.toml -ll

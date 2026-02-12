@@ -133,7 +133,7 @@ def _detect_via_stats(stats_url: str) -> str | None:
         import urllib.error
 
         req = urllib.request.Request(stats_url, headers={"User-Agent": "hapr/0.1"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310 — user-provided stats URL
             html = resp.read().decode("utf-8", errors="replace")
 
         # Stats page typically shows version in a header or footer

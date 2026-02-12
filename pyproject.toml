@@ -32,27 +32,33 @@ dependencies = [
     "plotly>=5.18",
     "jinja2>=3.1",
     "rich>=13.0",
-    "sslyze>=6.0",
-    "nvdlib>=0.7",
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=7.0",
-]
+scan = ["sslyze>=6.0"]
+cve = ["nvdlib>=0.7"]
+full = ["hapr[scan,cve]"]
+dev = ["pytest>=7.0", "bandit>=1.7"]
 
 [project.scripts]
 hapr = "hapr.cli:cli"
 
 [project.urls]
-Homepage = "https://github.com/hapr-tool/hapr"
-Issues = "https://github.com/hapr-tool/hapr/issues"
+Homepage = "https://github.com/HillviewCap/hapr"
+Repository = "https://github.com/HillviewCap/hapr"
+Issues = "https://github.com/HillviewCap/hapr/issues"
+Changelog = "https://github.com/HillviewCap/hapr/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 include = ["hapr*"]
 
 [tool.setuptools.package-data]
-hapr = ["../framework/*.yaml", "../templates/*.j2"]
+"hapr.data" = ["*.yaml"]
+"hapr.templates" = ["*.j2"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101"]
