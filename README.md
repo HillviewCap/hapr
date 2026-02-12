@@ -17,17 +17,17 @@ No CIS benchmark or automated security audit tool exists for HAProxy — despite
 ## Installation
 
 ```bash
-# From PyPI (core — config audit, scoring, reports)
-pip install hapr
+# From GitHub
+pip install git+https://github.com/HillviewCap/hapr.git
 
 # With live TLS scanning (sslyze)
-pip install "hapr[scan]"
+pip install "hapr[scan] @ git+https://github.com/HillviewCap/hapr.git"
 
 # With CVE checking (nvdlib)
-pip install "hapr[cve]"
+pip install "hapr[cve] @ git+https://github.com/HillviewCap/hapr.git"
 
 # Everything (TLS + CVE)
-pip install "hapr[full]"
+pip install "hapr[full] @ git+https://github.com/HillviewCap/hapr.git"
 
 # From source (editable, with dev dependencies)
 pip install -e ".[dev]"
