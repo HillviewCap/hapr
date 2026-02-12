@@ -31,8 +31,12 @@ jobs:
       - name: Check version sync
         run: |
           PYPROJECT_VER=$(python -c "
-          import tomllib, pathlib
-          data = tomllib.loads(pathlib.Path('pyproject.toml').read_text())
+          try:
+              import tomllib
+          except ModuleNotFoundError:
+              import pip._vendor.tomli as tomllib
+          with open('pyproject.toml', 'rb') as f:
+              data = tomllib.load(f)
           print(data['project']['version'])
           ")
           INIT_VER=$(python -c "from hapr import __version__; print(__version__)")
@@ -53,7 +57,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install bandit
-        run: pip install bandit>=1.7
+        run: pip install "bandit>=1.7"
 
       - name: Run bandit
         run: bandit -r hapr/ -c pyproject.toml -ll
