@@ -4,6 +4,10 @@ Security baseline scoring, TLS scanning, CVE checking, and interactive reporting
 
 No CIS benchmark or automated security audit tool exists for HAProxy — despite it being one of the most widely deployed reverse proxies/load balancers. HAPR fills that gap with a Python CLI that parses configs, probes live TLS endpoints, checks for known CVEs, scores against a 103-check tiered security baseline across 13 categories, generates interactive network topology graphs, and produces self-contained HTML reports.
 
+<p align="center">
+  <img src="examples/terminal-score.png" alt="HAPR terminal security score" width="700">
+</p>
+
 ## Features
 
 - **103-check security baseline** — Four-tier assessment model (Baseline → Level 1 → Level 2 → Level 3) mapped to DISA STIG, NIST SP 800-52, PCI DSS 4.0, OWASP, and SOC 2
@@ -38,6 +42,44 @@ pip install -e .
 ```
 
 Requires Python 3.10+.
+
+## Screenshots
+
+### Terminal Output
+
+HAPR provides rich terminal output with color-coded category scores and detailed findings.
+
+<p align="center">
+  <img src="examples/terminal-categories.png" alt="Category score breakdown in terminal" width="700">
+</p>
+
+<p align="center">
+  <img src="examples/terminal-findings.png" alt="Findings table in terminal" width="700">
+</p>
+
+### HTML Report
+
+Generate self-contained HTML reports with an executive summary, interactive charts, network topology, filterable findings, and remediation guidance.
+
+<p align="center">
+  <img src="examples/report-executive-summary.png" alt="HTML report executive summary" width="700">
+</p>
+
+<p align="center">
+  <img src="examples/report-score-breakdown.png" alt="Score breakdown chart" width="700">
+  <br>
+  <img src="examples/report-category-details.png" alt="Category details table" width="700">
+</p>
+
+<p align="center">
+  <img src="examples/report-topology.png" alt="Network topology graph" width="700">
+</p>
+
+<p align="center">
+  <img src="examples/report-findings.png" alt="Findings detail with filters" width="700">
+  <br>
+  <img src="examples/report-remediation.png" alt="Remediation summary" width="700">
+</p>
 
 ## Quick Start
 
