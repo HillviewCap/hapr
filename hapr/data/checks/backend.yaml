@@ -1,0 +1,186 @@
+# HAPR-BKD: Backend Security
+- id: HAPR-BKD-001
+  title: Health Checks Configured
+  category: backend
+  tier: level1
+  severity: high
+  weight: 7
+  description: >
+    Verify that backend server health checks are configured to detect and remove unhealthy
+    servers from the load balancing rotation.
+  rationale: >
+    Without health checks, HAProxy continues sending traffic to failed or compromised
+    backends, resulting in errors for users and potential security issues if a compromised
+    server serves malicious content.
+  remediation: >
+    Enable health checks on backend servers using the check keyword and configure
+    appropriate intervals. Example: server web1 10.0.0.1:80 check inter 5s fall 3
+    rise 2
+  references:
+    nist:
+    - SC-5
+    - SI-6
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000246-WSR-000149
+  check_function: backend.check_health_checks
+- id: HAPR-BKD-002
+  title: Connection Limits on Backend Servers
+  category: backend
+  tier: level2
+  severity: medium
+  weight: 4
+  description: >
+    Verify that per-server connection limits (maxconn) are configured on backend servers
+    to prevent overloading individual hosts.
+  rationale: >
+    Without connection limits, a single backend server may receive more connections
+    than it can handle, leading to degraded performance or crashes. Connection limits
+    also help contain the impact if one server is slower due to compromise or resource
+    issues.
+  remediation: >
+    Set maxconn on individual backend servers. Example: server web1 10.0.0.1:80 check
+    maxconn 500
+  references:
+    nist:
+    - SC-5
+    - SC-6
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000246-WSR-000149
+  check_function: backend.check_connection_limits
+- id: HAPR-BKD-003
+  title: Backend SSL/TLS to Servers
+  category: backend
+  tier: level2
+  severity: medium
+  weight: 4
+  description: >
+    Verify that backend connections to servers use SSL/TLS to encrypt traffic between
+    HAProxy and backend hosts.
+  rationale: >
+    Unencrypted backend connections expose request and response data to network sniffing
+    on the backend network. If the backend network is compromised, an attacker can
+    intercept sensitive data including authentication tokens and personal information.
+  remediation: >
+    Enable SSL on backend server lines. Example: server web1 10.0.0.1:443 ssl verify
+    required ca-file /etc/ssl/certs/ca-bundle.crt check
+  references:
+    nist:
+    - SC-8
+    - SC-8(1)
+    - SC-23
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000439-WSR-000156
+  check_function: backend.check_backend_ssl
+- id: HAPR-BKD-004
+  title: Cookie Attributes Set Securely
+  category: backend
+  tier: level1
+  severity: medium
+  weight: 4
+  description: >
+    Verify that session persistence cookies set by HAProxy include the Secure, HttpOnly,
+    and SameSite attributes.
+  rationale: >
+    HAProxy persistence cookies without Secure can be sent over plain HTTP, leaking
+    session information. Without HttpOnly, cookies are accessible to JavaScript, enabling
+    theft via XSS. Without SameSite, cookies may be sent in cross-site requests, enabling
+    CSRF attacks.
+  remediation: >
+    Configure cookie attributes in backend sections. Example: cookie SERVERID insert
+    indirect nocache httponly secure attr SameSite=Strict
+  references:
+    nist:
+    - SC-8
+    - SC-23
+    owasp:
+    - A01:2021 Broken Access Control
+    stig:
+    - SRG-APP-000439-WSR-000156
+    - SRG-APP-000023-WSR-000012
+  check_function: backend.check_cookie_security
+- id: HAPR-BKD-005
+  title: Retry and Redispatch Configured
+  category: backend
+  tier: level2
+  severity: low
+  weight: 2
+  description: >
+    Verify that retry and redispatch options are configured to handle backend failures
+    gracefully.
+  rationale: >
+    Without retries and redispatch, a single backend failure results in an immediate
+    error to the user. Proper retry logic with redispatch allows HAProxy to transparently
+    failover to a healthy server, improving availability and resilience against targeted
+    backend attacks.
+  remediation: >
+    Configure retries and enable redispatch in the defaults or backend section. Example:
+    retries 3 option redispatch
+  references:
+    nist:
+    - SC-5
+    - CP-10
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000246-WSR-000149
+  check_function: backend.check_retry_redispatch
+- id: HAPR-BKD-006
+  title: Backend SSL Certificate Verification
+  category: backend
+  tier: level1
+  severity: high
+  weight: 7
+  description: >
+    Verify that backend servers using SSL have certificate verification enabled with
+    verify required and a ca-file to validate the server certificate chain.
+  rationale: >
+    SSL connections to backends without certificate verification are vulnerable to
+    man-in-the-middle attacks. An attacker on the backend network can present a fraudulent
+    certificate and intercept all traffic between HAProxy and the backend server,
+    capturing sensitive data including authentication tokens and personal information.
+  remediation: >
+    Enable certificate verification on backend server lines. Example: server web1
+    10.0.0.1:443 ssl verify required ca-file /etc/ssl/certs/ca-bundle.crt
+  references:
+    nist:
+    - SC-8
+    - SC-8(1)
+    - IA-5(2)
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000439-WSR-000156
+    - SRG-APP-000427-WSR-000186
+  check_function: backend.check_backend_ssl_verification
+- id: HAPR-CACHE-001
+  title: Cache Security Controls
+  category: backend
+  tier: level2
+  severity: medium
+  weight: 4
+  description: >
+    Verify that HAProxy cache configuration includes security controls such as size
+    limits, max-age restrictions, and cache-control headers to prevent cache poisoning
+    and data leakage.
+  rationale: >
+    Improperly configured caches can serve stale or poisoned content, leak sensitive
+    data between users, or be used to amplify attacks. Limiting cache size, setting
+    appropriate max-age, and enforcing cache-control headers mitigates these risks.
+  remediation: >
+    Configure cache with security controls. Example: cache my_cache total-max-size
+    64 max-age 3600 Ensure sensitive responses include appropriate Cache-Control headers.
+  references:
+    nist:
+    - SC-8
+    - SI-10
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000516-WSR-000174
+  check_function: backend.check_cache_security

@@ -1,0 +1,127 @@
+# HAPR-PROC: Process Security
+- id: HAPR-PROC-001
+  title: Chroot Enabled
+  category: process
+  tier: baseline
+  severity: high
+  weight: 7
+  description: >
+    Verify that HAProxy is configured to chroot into a restricted directory, limiting
+    filesystem access in the event of a compromise.
+  rationale: >
+    Running HAProxy in a chroot jail confines the process to a dedicated directory
+    tree. If an attacker exploits a vulnerability, they cannot traverse the full filesystem
+    to access sensitive data or binaries.
+  remediation: >
+    Add a chroot directive to the global section pointing to an empty, dedicated directory.
+    Example: chroot /var/lib/haproxy
+  references:
+    nist:
+    - SC-39
+    - CM-7
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000141-WSR-000076
+  check_function: process.check_chroot
+- id: HAPR-PROC-002
+  title: Runs as Non-Root User
+  category: process
+  tier: baseline
+  severity: critical
+  weight: 10
+  description: >
+    Verify that HAProxy drops privileges and runs as a non-root user after binding
+    to privileged ports.
+  rationale: >
+    Running network services as root grants the process unrestricted system access.
+    If compromised, an attacker inherits full root privileges. HAProxy should drop
+    to an unprivileged user immediately after startup.
+  remediation: >
+    Set the user directive in the global section to a dedicated non-root service account.
+    Example: user haproxy
+  references:
+    nist:
+    - AC-6
+    - AC-6(2)
+    - CM-7
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000141-WSR-000076
+    - SRG-APP-000211-WSR-000030
+  check_function: process.check_non_root_user
+- id: HAPR-PROC-003
+  title: Group Directive Set
+  category: process
+  tier: level1
+  severity: medium
+  weight: 4
+  description: >
+    Verify that HAProxy is configured with a dedicated group to further restrict process
+    permissions.
+  rationale: >
+    Setting a dedicated group ensures HAProxy cannot access files owned by other groups,
+    reducing the blast radius of a compromise. Combined with the user directive, this
+    enforces proper Unix permission boundaries.
+  remediation: >
+    Add a group directive in the global section. Example: group haproxy
+  references:
+    nist:
+    - AC-6
+    - AC-3
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000211-WSR-000030
+  check_function: process.check_user_group
+- id: HAPR-PROC-004
+  title: Ulimits Configured
+  category: process
+  tier: level2
+  severity: low
+  weight: 2
+  description: >
+    Verify that file descriptor ulimits are explicitly configured in the global section
+    to prevent resource exhaustion.
+  rationale: >
+    HAProxy uses file descriptors for every connection. Without explicit ulimit settings,
+    the process may hit OS defaults and drop legitimate connections during traffic
+    spikes, leading to denial of service.
+  remediation: >
+    Set ulimit-n in the global section to a value appropriate for your expected connection
+    count. Example: ulimit-n 65536
+  references:
+    nist:
+    - SC-5
+    - AU-5(1)
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000246-WSR-000149
+  check_function: process.check_ulimits
+- id: HAPR-PROC-005
+  title: Daemon Mode Configured
+  category: process
+  tier: baseline
+  severity: low
+  weight: 2
+  description: >
+    Verify that HAProxy is configured to run as a daemon process, detaching from the
+    terminal and running in the background.
+  rationale: >
+    Running HAProxy in foreground mode is suitable for debugging but not for production.
+    Daemon mode ensures the process runs as a proper background service, integrates
+    with init systems, and prevents accidental termination when the controlling terminal
+    closes.
+  remediation: >
+    Add the daemon directive to the global section. Example: daemon
+  references:
+    nist:
+    - CM-6
+    - CM-2
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000516-WSR-000174
+  check_function: process.check_daemon_mode

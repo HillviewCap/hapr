@@ -1,0 +1,92 @@
+# HAPR-CVE: Known CVE Detection
+- id: HAPR-CVE-001
+  title: No Critical CVEs for Detected Version
+  category: cve
+  tier: baseline
+  severity: critical
+  weight: 10
+  description: >
+    Check the detected HAProxy version against a database of known critical CVEs to
+    identify unpatched vulnerabilities with CVSS scores of 9.0 or higher.
+  rationale: >
+    Critical CVEs represent vulnerabilities that can be exploited remotely with minimal
+    complexity, often leading to complete system compromise. Running a version with
+    known critical vulnerabilities puts the entire infrastructure at immediate risk.
+  remediation: >
+    Upgrade HAProxy to the latest stable release that patches all known critical CVEs.
+    Review the HAProxy security advisories at https://www.haproxy.org/bugs.html and
+    plan immediate remediation.
+  references:
+    nist:
+    - SI-2
+    - SI-2(2)
+    - RA-5
+    owasp:
+    - A06:2021 Vulnerable and Outdated Components
+    stig:
+    - SRG-APP-000456-WSR-000187
+    - SRG-APP-000454-WSR-000170
+  check_function: cve.check_critical_cves
+  requires: version
+- id: HAPR-CVE-002
+  title: No High Severity CVEs for Detected Version
+  category: cve
+  tier: level3
+  severity: high
+  weight: 7
+  description: >
+    Check the detected HAProxy version against a database of known high severity CVEs
+    to identify unpatched vulnerabilities with CVSS scores between 7.0 and 8.9.
+  rationale: >
+    High severity CVEs can lead to significant security impact including remote code
+    execution, privilege escalation, or data exposure. While they may require more
+    specific conditions than critical CVEs, they still represent serious risk to the
+    deployment.
+  remediation: >
+    Plan an upgrade to the latest stable HAProxy release within your maintenance window.
+    Review each CVE to determine if temporary mitigations (such as configuration changes)
+    can reduce risk until the upgrade is completed.
+  references:
+    nist:
+    - SI-2
+    - RA-5
+    owasp:
+    - A06:2021 Vulnerable and Outdated Components
+    stig:
+    - SRG-APP-000456-WSR-000187
+  check_function: cve.check_high_cves
+  requires: version
+- id: HAPR-CVE-003
+  title: HTTP Request Smuggling CVE-2021-40346
+  category: cve
+  tier: level3
+  severity: critical
+  weight: 10
+  description: >
+    Check specifically for CVE-2021-40346, an integer overflow vulnerability in HAProxy's
+    HTTP request parsing that allows HTTP request smuggling. Affects HAProxy versions
+    before 2.0.25, 2.2.x before 2.2.17, 2.3.x before 2.3.14, and 2.4.x before 2.4.4.
+  rationale: >
+    CVE-2021-40346 allows an attacker to smuggle HTTP requests past HAProxy's parsing
+    logic using a specially crafted Content-Length header with a specific integer
+    overflow. This bypasses ACLs, WAF rules, and authentication checks, enabling direct
+    access to backend systems. It is particularly dangerous because it undermines
+    all proxy-level security controls.
+  remediation: >
+    Upgrade HAProxy to version 2.0.25, 2.2.17, 2.3.14, 2.4.4, or later to patch this
+    vulnerability. As a temporary mitigation, add a rule to reject requests with multiple
+    Content-Length headers: http-request deny if { req.hdr_cnt(content-length) gt
+    1 }
+  references:
+    nist:
+    - SI-2
+    - SI-10
+    - RA-5
+    owasp:
+    - A06:2021 Vulnerable and Outdated Components
+    - A03:2021 Injection
+    stig:
+    - SRG-APP-000454-WSR-000170
+    - SRG-APP-000456-WSR-000187
+  check_function: cve.check_request_smuggling_cve
+  requires: version

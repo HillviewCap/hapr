@@ -208,3 +208,55 @@ defaults
         config = parse_string("global\n    log /dev/log local0\n")
         with pytest.raises(FileNotFoundError):
             run_audit(config, baseline_path="/nonexistent/baseline.yaml")
+
+
+class TestSplitBaseline:
+    """Regression tests for the split per-category baseline loading."""
+
+    EXPECTED_CATEGORIES = [
+        "access", "backend", "cve", "disclosure", "frontend",
+        "global_defaults", "headers", "logging", "process",
+        "request", "timeouts", "tls", "tls_live",
+    ]
+    EXPECTED_CHECK_COUNT = 103
+    REQUIRED_CHECK_FIELDS = {"id", "title", "category", "severity", "weight", "check_function"}
+
+    @pytest.fixture()
+    def baseline(self):
+        from hapr.framework.baseline import load_baseline
+        return load_baseline()
+
+    def test_total_check_count(self, baseline):
+        """Split baseline must produce exactly 103 checks."""
+        assert len(baseline["checks"]) == self.EXPECTED_CHECK_COUNT
+
+    def test_all_categories_present(self, baseline):
+        """All 13 categories must be represented in the loaded checks."""
+        cats = sorted({c["category"] for c in baseline["checks"]})
+        assert cats == self.EXPECTED_CATEGORIES
+
+    def test_metadata_intact(self, baseline):
+        """Metadata section must survive the split."""
+        meta = baseline["metadata"]
+        assert meta["name"] == "HAPR Security Baseline"
+        assert meta["version"] == "1.0.0"
+        assert sorted(meta["categories"]) == self.EXPECTED_CATEGORIES
+
+    def test_required_fields_on_every_check(self, baseline):
+        """Every check must have the minimum required fields."""
+        for check in baseline["checks"]:
+            missing = self.REQUIRED_CHECK_FIELDS - check.keys()
+            assert not missing, f"Check {check.get('id', '???')} missing fields: {missing}"
+
+    def test_unique_check_ids(self, baseline):
+        """All check IDs must be unique."""
+        ids = [c["id"] for c in baseline["checks"]]
+        assert len(ids) == len(set(ids)), f"Duplicate IDs: {[x for x in ids if ids.count(x) > 1]}"
+
+    def test_category_field_matches_file(self, baseline):
+        """Each check's category must match one of the declared categories."""
+        valid = set(baseline["metadata"]["categories"])
+        for check in baseline["checks"]:
+            assert check["category"] in valid, (
+                f"Check {check['id']} has category '{check['category']}' not in metadata"
+            )

@@ -1,0 +1,160 @@
+# HAPR-LOG: Logging & Monitoring
+- id: HAPR-LOG-001
+  title: Log Directive Present
+  category: logging
+  tier: baseline
+  severity: high
+  weight: 7
+  description: >
+    Verify that at least one log directive is configured in the global section to
+    enable event logging.
+  rationale: >
+    Without logging, security incidents, errors, and performance issues cannot be
+    detected, investigated, or correlated. Logging is a foundational requirement for
+    security monitoring, incident response, and compliance.
+  remediation: >
+    Add a log directive pointing to a syslog server or local socket. Example: log
+    127.0.0.1:514 local0
+  references:
+    nist:
+    - AU-2
+    - AU-3
+    - AU-12
+    owasp:
+    - A09:2021 Security Logging and Monitoring Failures
+    stig:
+    - SRG-APP-000092-WSR-000055
+    - SRG-APP-000095-WSR-000056
+  check_function: logging_checks.check_logging_configured
+- id: HAPR-LOG-002
+  title: Detailed Log Format Configured
+  category: logging
+  tier: level1
+  severity: medium
+  weight: 4
+  description: >
+    Verify that the log format includes sufficient detail for security analysis, such
+    as client IP, request method, URL, status code, and timing information.
+  rationale: >
+    Default log formats may omit critical fields needed for security investigation.
+    Detailed logging enables correlation of events, detection of attack patterns,
+    and forensic analysis after incidents.
+  remediation: >
+    Configure a custom log-format that includes security-relevant fields. Example:
+    log-format "%ci:%cp [%tr] %ft %b/%s %TR/%Tw/%Tc/%Tr/%Ta %ST %B %CC %CS %tsc %ac/%fc/%bc/%sc/%rc
+    %sq/%bq %hr %hs %{+Q}r"
+  references:
+    nist:
+    - AU-3
+    - AU-3(1)
+    - AU-8
+    owasp:
+    - A09:2021 Security Logging and Monitoring Failures
+    stig:
+    - SRG-APP-000095-WSR-000056
+    - SRG-APP-000096-WSR-000057
+  check_function: logging_checks.check_log_format
+- id: HAPR-LOG-004
+  title: Appropriate Log Level
+  category: logging
+  tier: level1
+  severity: low
+  weight: 2
+  description: >
+    Verify that the log level is set appropriately, capturing sufficient detail without
+    excessive noise that could obscure security events.
+  rationale: >
+    A log level that is too low (e.g., emerg) will miss important security events.
+    A level that is too high (e.g., debug) in production generates excessive volume
+    that can fill disks, degrade performance, and make analysis difficult.
+  remediation: >
+    Set the log level to info or notice for production environments. Use warning or
+    higher only if log volume is carefully managed. Example: log 127.0.0.1:514 local0
+    info
+  references:
+    nist:
+    - AU-2
+    - AU-5
+    owasp:
+    - A09:2021 Security Logging and Monitoring Failures
+    stig:
+    - SRG-APP-000092-WSR-000055
+  check_function: logging_checks.check_log_level
+- id: HAPR-LOG-005
+  title: HTTP or TCP Log Option Enabled
+  category: logging
+  tier: level1
+  severity: medium
+  weight: 4
+  description: >
+    Verify that option httplog or option tcplog is enabled to capture protocol-level
+    details in log entries.
+  rationale: >
+    Without httplog or tcplog, HAProxy uses a minimal log format that omits request
+    details, status codes, and timing metrics. These details are essential for detecting
+    web attacks, troubleshooting issues, and meeting audit requirements.
+  remediation: >
+    Enable the appropriate log option in defaults or each frontend/backend. Example:
+    option httplog
+  references:
+    nist:
+    - AU-3
+    - AU-12
+    owasp:
+    - A09:2021 Security Logging and Monitoring Failures
+    stig:
+    - SRG-APP-000095-WSR-000056
+  check_function: logging_checks.check_httplog_or_tcplog
+- id: HAPR-LOG-006
+  title: Dontlognull Option Enabled
+  category: logging
+  tier: baseline
+  severity: low
+  weight: 2
+  description: >
+    Verify that option dontlognull is configured to suppress logging of connections
+    that close without sending any data.
+  rationale: >
+    Without dontlognull, health check probes, port scans, and idle connections generate
+    noise in log files, making it harder to identify real security events. Enabling
+    this option reduces log volume and improves signal-to-noise ratio for security
+    monitoring.
+  remediation: >
+    Add option dontlognull to the defaults section. Example: defaults
+      option dontlognull
+  references:
+    nist:
+    - AU-2
+    - AU-5
+    owasp:
+    - A09:2021 Security Logging and Monitoring Failures
+    stig:
+    - SRG-APP-000092-WSR-000055
+  check_function: logging_checks.check_dontlognull
+- id: HAPR-LOG-007
+  title: Remote Syslog Configured
+  category: logging
+  tier: level1
+  severity: medium
+  weight: 4
+  description: >
+    Verify that at least one log directive sends logs to a remote syslog server rather
+    than only to a local socket or file.
+  rationale: >
+    Local-only logging is vulnerable to log tampering if the system is compromised.
+    Remote syslog ensures audit logs are stored on a separate system where they cannot
+    be easily modified or deleted by an attacker who has compromised the HAProxy host.
+  remediation: >
+    Configure a remote syslog target in the global section. Example: log 10.0.0.5:514
+    local0 info
+  references:
+    nist:
+    - AU-4
+    - AU-9
+    - AU-9(2)
+    owasp:
+    - A09:2021 Security Logging and Monitoring Failures
+    stig:
+    - SRG-APP-000092-WSR-000055
+    - SRG-APP-000125-WSR-000071
+  check_function: logging_checks.check_remote_syslog

@@ -1,0 +1,132 @@
+# HAPR-INF: Information Disclosure
+- id: HAPR-INF-001
+  title: Server Header Removed
+  category: disclosure
+  tier: baseline
+  severity: high
+  weight: 7
+  requires_mode: http
+  description: >
+    Verify that the Server response header is removed or replaced to prevent disclosure
+    of backend server software and versions.
+  rationale: >
+    The Server header typically reveals the backend web server software and version,
+    giving attackers specific version information to search for known vulnerabilities.
+    Removing it forces attackers to use more detectable fingerprinting techniques.
+  remediation: >
+    Remove or overwrite the Server header using a response rule. Example: http-response
+    del-header Server
+  references:
+    nist:
+    - SC-8
+    - SI-11
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000266-WSR-000160
+  check_function: disclosure.check_server_header_removed
+- id: HAPR-INF-002
+  title: Custom Error Pages Configured
+  category: disclosure
+  tier: level1
+  severity: medium
+  weight: 4
+  description: >
+    Verify that custom error pages are configured to replace default HAProxy error
+    responses that may reveal software details.
+  rationale: >
+    Default error pages often include the software name and version, internal server
+    details, or stack traces. Custom error pages present a consistent user experience
+    while preventing information leakage.
+  remediation: >
+    Configure custom error files for common HTTP error codes. Example: errorfile 400
+    /etc/haproxy/errors/400.http errorfile 403 /etc/haproxy/errors/403.http errorfile
+    500 /etc/haproxy/errors/500.http errorfile 502 /etc/haproxy/errors/502.http errorfile
+    503 /etc/haproxy/errors/503.http
+  references:
+    nist:
+    - SI-11
+    - SC-8
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000266-WSR-000160
+  check_function: disclosure.check_custom_error_pages
+- id: HAPR-INF-003
+  title: Version Information Hidden
+  category: disclosure
+  tier: level1
+  severity: medium
+  weight: 4
+  requires_mode: http
+  description: >
+    Verify that HAProxy version information is not disclosed in HTTP headers, error
+    pages, or other responses.
+  rationale: >
+    Disclosing the exact HAProxy version enables attackers to identify specific vulnerabilities
+    that affect that version. Hiding version information is a simple defense-in-depth
+    measure that increases the cost of reconnaissance.
+  remediation: >
+    Ensure no version strings are exposed in headers or error pages. Remove or replace
+    any headers that include HAProxy version details. Example: http-response del-header
+    X-Powered-By
+  references:
+    nist:
+    - SI-11
+    - CM-7
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000266-WSR-000160
+  check_function: disclosure.check_version_hidden
+- id: HAPR-INF-004
+  title: Stats Page Version Hidden
+  category: disclosure
+  tier: level1
+  severity: low
+  weight: 2
+  description: >
+    Verify that the stats page is configured with stats hide-version to prevent HAProxy
+    version disclosure on the statistics page.
+  rationale: >
+    The HAProxy stats page displays the version number by default. Even with authentication,
+    the version disclosure provides useful reconnaissance data if credentials are
+    compromised or the page is accidentally exposed.
+  remediation: >
+    Add stats hide-version in the stats configuration. Example: stats hide-version
+  references:
+    nist:
+    - SI-11
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000266-WSR-000160
+  check_function: disclosure.check_stats_version_hidden
+- id: HAPR-INF-005
+  title: X-Forwarded-For Spoofing Prevention
+  category: disclosure
+  tier: level1
+  severity: medium
+  weight: 4
+  requires_mode: http
+  description: >
+    Verify that X-Forwarded-For header spoofing is prevented when option forwardfor
+    is in use, by deleting or resetting the client-supplied X-Forwarded-For header
+    before HAProxy adds its own.
+  rationale: >
+    When option forwardfor is enabled, HAProxy appends the client IP to the X-Forwarded-For
+    header. However, clients can supply a forged X-Forwarded-For header, causing backends
+    to trust the spoofed IP for access control, rate limiting, or audit logging. Deleting
+    the header before appending prevents this attack.
+  remediation: >
+    Delete the client-supplied X-Forwarded-For before enabling forwardfor. Example:
+    http-request del-header X-Forwarded-For option forwardfor
+  references:
+    nist:
+    - SI-10
+    - SC-8
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000266-WSR-000160
+  check_function: disclosure.check_xff_spoofing_prevention

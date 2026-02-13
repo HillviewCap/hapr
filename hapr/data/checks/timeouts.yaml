@@ -1,0 +1,155 @@
+# HAPR-TMO: Timeout Configuration
+- id: HAPR-TMO-001
+  title: Client Timeout Set
+  category: timeouts
+  tier: baseline
+  severity: high
+  weight: 7
+  description: >
+    Verify that the client timeout (timeout client) is explicitly set to limit how
+    long HAProxy waits for data from the client.
+  rationale: >
+    Without a client timeout, slow or abandoned connections remain open indefinitely,
+    consuming file descriptors and memory. Attackers can exploit this with slowloris-style
+    attacks to exhaust connection capacity and cause denial of service.
+  remediation: >
+    Set a client timeout appropriate for your application. Example: timeout client
+    30s
+  references:
+    nist:
+    - SC-5
+    - SC-10
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000246-WSR-000149
+    - SRG-APP-000295-WSR-000134
+  check_function: timeouts.check_client_timeout
+- id: HAPR-TMO-002
+  title: Server Timeout Set
+  category: timeouts
+  tier: baseline
+  severity: high
+  weight: 7
+  description: >
+    Verify that the server timeout (timeout server) is explicitly set to limit how
+    long HAProxy waits for a response from backends.
+  rationale: >
+    Without a server timeout, requests to unresponsive backends hold connections open
+    indefinitely. This wastes proxy resources, prevents failover to healthy backends,
+    and can cascade into broader service degradation.
+  remediation: >
+    Set a server timeout appropriate for your backend response times. Example: timeout
+    server 30s
+  references:
+    nist:
+    - SC-5
+    - SC-10
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000295-WSR-000134
+  check_function: timeouts.check_server_timeout
+- id: HAPR-TMO-003
+  title: Connect Timeout Set
+  category: timeouts
+  tier: baseline
+  severity: high
+  weight: 7
+  description: >
+    Verify that the connection timeout (timeout connect) is explicitly set to limit
+    how long HAProxy waits to establish a backend connection.
+  rationale: >
+    Without a connect timeout, HAProxy waits indefinitely for backend connections
+    that may never complete due to network issues or overloaded servers. This ties
+    up proxy resources and delays failover to other backends.
+  remediation: >
+    Set a connect timeout appropriate for your network topology. Example: timeout
+    connect 5s
+  references:
+    nist:
+    - SC-5
+    - SC-10
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000295-WSR-000134
+  check_function: timeouts.check_connect_timeout
+- id: HAPR-TMO-004
+  title: HTTP Request Timeout Set
+  category: timeouts
+  tier: baseline
+  severity: high
+  weight: 7
+  description: >
+    Verify that the HTTP request timeout (timeout http-request) is set to limit how
+    long HAProxy waits for a complete HTTP request.
+  rationale: >
+    The http-request timeout is critical for defending against slowloris attacks,
+    where clients send headers very slowly to hold connections open. Without this
+    timeout, a small number of attackers can exhaust all available connections.
+  remediation: >
+    Set a http-request timeout to limit initial request time. Example: timeout http-request
+    10s
+  references:
+    nist:
+    - SC-5
+    - SI-10
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000246-WSR-000149
+  check_function: timeouts.check_http_request_timeout
+- id: HAPR-TMO-005
+  title: Timeout Values Are Reasonable
+  category: timeouts
+  tier: level1
+  severity: medium
+  weight: 4
+  description: >
+    Verify that timeout values are set to reasonable durations and are not excessively
+    long, which would negate their protective purpose.
+  rationale: >
+    Timeouts that are set to extremely long durations (e.g., hours or days) provide
+    little protection against resource exhaustion or slowloris attacks. Timeouts should
+    balance application requirements with security, typically not exceeding a few
+    minutes for most values.
+  remediation: >
+    Review all timeout values and ensure they are appropriate. General guidelines:
+    connect 5-10s, client 30-60s, server 30-60s, http-request 5-15s. Adjust based
+    on application needs but avoid values exceeding 300s without specific justification.
+  references:
+    nist:
+    - SC-5
+    - SC-10
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000295-WSR-000134
+  check_function: timeouts.check_timeout_values_reasonable
+- id: HAPR-TMO-006
+  title: HTTP Keep-Alive Timeout Set
+  category: timeouts
+  tier: baseline
+  severity: medium
+  weight: 4
+  description: >
+    Verify that the HTTP keep-alive timeout (timeout http-keep-alive) is explicitly
+    set to limit idle keep-alive connection persistence.
+  rationale: >
+    Without an http-keep-alive timeout, idle connections from keep-alive requests
+    may persist for the full client timeout duration, wasting resources and increasing
+    exposure to slow-rate attacks. A short keep-alive timeout releases idle connections
+    quickly while still allowing connection reuse for bursts of requests.
+  remediation: >
+    Set an http-keep-alive timeout appropriate for your application. Example: timeout
+    http-keep-alive 5s
+  references:
+    nist:
+    - SC-5
+    - SC-10
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000295-WSR-000134
+  check_function: timeouts.check_http_keepalive_timeout

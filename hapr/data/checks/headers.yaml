@@ -1,0 +1,238 @@
+# HAPR-HDR: HTTP Headers Security
+- id: HAPR-HDR-001
+  title: X-Frame-Options Header Set
+  category: headers
+  tier: level1
+  severity: medium
+  weight: 4
+  requires_mode: http
+  description: >
+    Verify that the X-Frame-Options header is set to DENY or SAMEORIGIN to prevent
+    clickjacking attacks.
+  rationale: >
+    Without X-Frame-Options, the site can be embedded in iframes on malicious pages,
+    enabling clickjacking where users unknowingly interact with the proxied application
+    through a disguised interface.
+  remediation: >
+    Add the X-Frame-Options header in frontend or backend configuration. Example:
+    http-response set-header X-Frame-Options DENY
+  references:
+    nist:
+    - SI-10
+    - SC-18
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000516-WSR-000174
+  check_function: headers.check_x_frame_options
+- id: HAPR-HDR-002
+  title: Content-Security-Policy Header Set
+  category: headers
+  tier: level1
+  severity: medium
+  weight: 4
+  requires_mode: http
+  description: >
+    Verify that a Content-Security-Policy header is configured to restrict the sources
+    from which content can be loaded.
+  rationale: >
+    CSP is the primary defense against cross-site scripting and data injection attacks.
+    It restricts which domains can serve scripts, styles, images, and other resources,
+    significantly reducing the attack surface for XSS.
+  remediation: >
+    Add a Content-Security-Policy header. Start with a restrictive policy and relax
+    as needed. Example: http-response set-header Content-Security-Policy "default-src
+    'self'; script-src 'self'"
+  references:
+    nist:
+    - SI-10
+    - SC-18
+    owasp:
+    - A03:2021 Injection
+    stig:
+    - SRG-APP-000516-WSR-000174
+  check_function: headers.check_csp_header
+- id: HAPR-HDR-003
+  title: X-Content-Type-Options Header Set
+  category: headers
+  tier: level1
+  severity: medium
+  weight: 4
+  requires_mode: http
+  description: >
+    Verify that the X-Content-Type-Options header is set to nosniff to prevent MIME
+    type confusion attacks.
+  rationale: >
+    Without nosniff, browsers may attempt to guess the MIME type of a response, potentially
+    interpreting data files as executable content. This enables attacks where malicious
+    content is served with an innocuous Content-Type.
+  remediation: >
+    Add the X-Content-Type-Options header. Example: http-response set-header X-Content-Type-Options
+    nosniff
+  references:
+    nist:
+    - SI-10
+    - SC-18
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000516-WSR-000174
+  check_function: headers.check_x_content_type_options
+- id: HAPR-HDR-004
+  title: Referrer-Policy Header Set
+  category: headers
+  tier: level1
+  severity: low
+  weight: 2
+  requires_mode: http
+  description: >
+    Verify that a Referrer-Policy header is configured to control how much referrer
+    information is sent with requests.
+  rationale: >
+    By default, browsers send the full URL as a referrer to third-party sites, potentially
+    leaking sensitive path components, query parameters, or session tokens contained
+    in URLs.
+  remediation: >
+    Set a restrictive Referrer-Policy header. Example: http-response set-header Referrer-Policy
+    strict-origin-when-cross-origin
+  references:
+    nist:
+    - SC-8
+    - SI-11
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000516-WSR-000174
+  check_function: headers.check_referrer_policy
+- id: HAPR-HDR-005
+  title: Permissions-Policy Header Set
+  category: headers
+  tier: level2
+  severity: low
+  weight: 2
+  requires_mode: http
+  description: >
+    Verify that a Permissions-Policy header is configured to restrict access to browser
+    features and APIs.
+  rationale: >
+    Permissions-Policy allows control over which browser features (camera, microphone,
+    geolocation, etc.) can be used by the page and its embedded content. Without it,
+    embedded iframes may access sensitive device capabilities.
+  remediation: >
+    Add a Permissions-Policy header restricting unnecessary features. Example: http-response
+    set-header Permissions-Policy "camera=(), microphone=(), geolocation=()"
+  references:
+    nist:
+    - SC-18
+    - AC-4
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000516-WSR-000174
+  check_function: headers.check_permissions_policy
+- id: HAPR-HDR-006
+  title: X-XSS-Protection Not Misconfigured
+  category: headers
+  tier: level2
+  severity: low
+  weight: 2
+  requires_mode: http
+  description: >
+    Verify that the X-XSS-Protection header is either absent, set to 0, or not set
+    to 1; mode=block. This header is deprecated and enabling it can introduce vulnerabilities
+    in older browsers.
+  rationale: >
+    The X-XSS-Protection header is deprecated and its filter has been removed from
+    modern browsers. Setting it to 1 or 1; mode=block can actually introduce cross-site
+    leak vulnerabilities in older browsers that still implement the XSS Auditor. CSP
+    should be used instead.
+  remediation: >
+    Either remove the X-XSS-Protection header entirely or set it to 0. Example: http-response
+    set-header X-XSS-Protection "0" Rely on Content-Security-Policy for XSS mitigation
+    instead.
+  references:
+    nist:
+    - SI-10
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000516-WSR-000174
+  check_function: headers.check_x_xss_protection
+- id: HAPR-HDR-007
+  title: Cross-Origin-Opener-Policy Header Set
+  category: headers
+  tier: level1
+  severity: low
+  weight: 2
+  requires_mode: http
+  description: >
+    Verify that the Cross-Origin-Opener-Policy (COOP) header is configured to isolate
+    the browsing context from cross-origin windows.
+  rationale: >
+    COOP prevents cross-origin windows from accessing the document's browsing context,
+    mitigating Spectre-class side-channel attacks and cross-origin information leaks.
+    It is part of the OWASP recommended security header set.
+  remediation: >
+    Add the COOP header. Example: http-response set-header Cross-Origin-Opener-Policy
+    same-origin
+  references:
+    nist:
+    - SC-18
+    - AC-4
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000516-WSR-000174
+  check_function: headers.check_cross_origin_opener_policy
+- id: HAPR-HDR-008
+  title: Cross-Origin-Embedder-Policy Header Set
+  category: headers
+  tier: level1
+  severity: low
+  weight: 2
+  requires_mode: http
+  description: >
+    Verify that the Cross-Origin-Embedder-Policy (COEP) header is configured to control
+    which cross-origin resources can be loaded.
+  rationale: >
+    COEP prevents a document from loading cross-origin resources that do not explicitly
+    grant permission via CORS or CORP headers. Combined with COOP, it enables cross-origin
+    isolation which is required for SharedArrayBuffer and high-resolution timers,
+    and mitigates Spectre-class attacks.
+  remediation: >
+    Add the COEP header. Example: http-response set-header Cross-Origin-Embedder-Policy
+    require-corp
+  references:
+    nist:
+    - SC-18
+    - AC-4
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000516-WSR-000174
+  check_function: headers.check_cross_origin_embedder_policy
+- id: HAPR-HDR-009
+  title: Cross-Origin-Resource-Policy Set
+  category: headers
+  tier: level2
+  severity: low
+  weight: 2
+  description: >
+    Verify that the Cross-Origin-Resource-Policy (CORP) header is set to control which
+    origins can embed or load resources from this site.
+  rationale: >
+    The Cross-Origin-Resource-Policy header prevents other origins from reading resources
+    served by this server. Combined with COOP and COEP, it completes cross-origin
+    isolation and mitigates data leakage via cross-origin reads.
+  remediation: >
+    Add a Cross-Origin-Resource-Policy response header. Example: http-response set-header
+    Cross-Origin-Resource-Policy same-origin
+  references:
+    nist:
+    - SC-8
+    - AC-4
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000516-WSR-000174
+  check_function: headers.check_cross_origin_resource_policy

@@ -1,0 +1,189 @@
+# HAPR-REQ: Request Handling
+- id: HAPR-REQ-001
+  title: Maximum Request Body Size Limited
+  category: request
+  tier: level1
+  severity: medium
+  weight: 4
+  requires_mode: http
+  description: >
+    Verify that the maximum allowed request body size is explicitly limited to prevent
+    resource exhaustion from oversized payloads.
+  rationale: >
+    Without body size limits, an attacker can send extremely large request bodies
+    to exhaust memory and disk resources on HAProxy or backend servers, causing denial
+    of service. This also mitigates some buffer overflow attempts.
+  remediation: >
+    Set a maximum body size appropriate for your application. Example: http-request
+    deny deny_status 413 if { req.body_size gt 10485760 }
+  references:
+    nist:
+    - SC-5
+    - SI-10
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000246-WSR-000149
+  check_function: request.check_max_body_size
+- id: HAPR-REQ-002
+  title: URL Length Limits Configured
+  category: request
+  tier: level2
+  severity: low
+  weight: 2
+  requires_mode: http
+  description: >
+    Verify that URL length limits are configured to reject abnormally long request
+    URIs that may indicate attacks.
+  rationale: >
+    Extremely long URLs can be used for buffer overflow attempts, denial of service,
+    or to bypass security filters. Limiting URL length to a reasonable value reduces
+    the attack surface.
+  remediation: >
+    Configure tune.http.maxuri in the global section or use an ACL to reject long
+    URLs. Example: http-request deny deny_status 414 if { url_len gt 8192 }
+  references:
+    nist:
+    - SI-10
+    - SC-5
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000246-WSR-000149
+  check_function: request.check_url_length_limits
+- id: HAPR-REQ-003
+  title: HTTP Method Filtering
+  category: request
+  tier: level1
+  severity: medium
+  weight: 4
+  requires_mode: http
+  description: >
+    Verify that only required HTTP methods are allowed and dangerous or unnecessary
+    methods such as TRACE, DELETE, and OPTIONS are restricted.
+  rationale: >
+    The TRACE method can be exploited for cross-site tracing attacks to steal credentials.
+    Unrestricted methods like PUT and DELETE may allow unauthorized data modification
+    on misconfigured backends. Only methods required by the application should be
+    permitted.
+  remediation: >
+    Create an ACL to whitelist allowed methods and deny all others. Example: acl valid_method
+    method GET HEAD POST http-request deny if !valid_method
+  references:
+    nist:
+    - CM-7
+    - AC-3
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000141-WSR-000076
+    - SRG-APP-000315-WSR-000004
+  check_function: request.check_method_filtering
+- id: HAPR-REQ-004
+  title: Request Header Size Limits
+  category: request
+  tier: level2
+  severity: low
+  weight: 2
+  requires_mode: http
+  description: >
+    Verify that request header size limits are configured to prevent abuse through
+    oversized headers.
+  rationale: >
+    Large headers can be used for denial of service, smuggling attacks, or to exploit
+    parsing vulnerabilities in HAProxy or backend servers. Reasonable limits protect
+    against these attack vectors.
+  remediation: >
+    Set tune.http.maxhdr and tune.bufsize in the global section. Example: tune.http.maxhdr
+    101 tune.bufsize 16384
+  references:
+    nist:
+    - SC-5
+    - SI-10
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000246-WSR-000149
+  check_function: request.check_request_header_limits
+- id: HAPR-REQ-005
+  title: HTTP Request Smuggling Prevention
+  category: request
+  tier: level1
+  severity: high
+  weight: 7
+  requires_mode: http
+  description: >
+    Verify that HTTP request smuggling prevention measures are configured, such as
+    option httpclose, duplicate Content-Length/Transfer-Encoding header detection,
+    or HTX mode.
+  rationale: >
+    HTTP request smuggling exploits discrepancies between how HAProxy and backend
+    servers parse HTTP requests, allowing attackers to bypass ACLs, WAF rules, and
+    authentication. Prevention measures like rejecting duplicate Content-Length headers
+    and enabling HTX mode close these attack vectors.
+  remediation: >
+    Add smuggling prevention rules. Example: http-request deny if { req.hdr_cnt(content-length)
+    gt 1 } http-request deny if { req.hdr_cnt(transfer-encoding) gt 1 } Or use option
+    httpclose to force connection-level isolation.
+  references:
+    nist:
+    - SI-10
+    - SC-8
+    owasp:
+    - A03:2021 Injection
+    stig:
+    - SRG-APP-000251-WSR-000157
+    - SRG-APP-000454-WSR-000170
+  check_function: request.check_http_smuggling_prevention
+- id: HAPR-H2-001
+  title: HTTP/2 Stream Limits Configured
+  category: request
+  tier: level3
+  severity: medium
+  weight: 4
+  description: >
+    Verify that HTTP/2 stream limits are configured to prevent resource exhaustion
+    through excessive concurrent streams.
+  rationale: >
+    HTTP/2 multiplexes many streams over a single connection. Without limits on concurrent
+    streams, frame size, or window size, an attacker can exhaust server resources
+    with minimal connections. The Rapid Reset attack (CVE-2023-44487) exploits unlimited
+    stream creation.
+  remediation: >
+    Set HTTP/2 tuning parameters in the global section. Example: tune.h2.max-concurrent-streams
+    100
+  references:
+    nist:
+    - SC-5
+    - SC-5(2)
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000246-WSR-000149
+  check_function: request.check_h2_stream_limits
+- id: HAPR-H2-002
+  title: H2C Smuggling Prevention
+  category: request
+  tier: level3
+  severity: high
+  weight: 7
+  description: >
+    Verify that HTTP/2 cleartext (h2c) upgrades are prevented or restricted to mitigate
+    request smuggling attacks.
+  rationale: >
+    H2C allows HTTP/2 without TLS via the Upgrade header. Attackers can exploit h2c
+    upgrade mechanisms to smuggle requests past security controls. Binding h2 only
+    over TLS or blocking h2c upgrade requests prevents this attack vector.
+  remediation: >
+    Either ensure HTTP/2 is only available over TLS (bind with ssl and alpn h2), or
+    add deny rules for h2c upgrades: http-request deny if { req.hdr(Upgrade) -i h2c
+    }
+  references:
+    nist:
+    - SC-8
+    - SI-10
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000251-WSR-000157
+  check_function: request.check_h2c_smuggling_prevention

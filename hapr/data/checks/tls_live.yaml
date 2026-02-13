@@ -1,0 +1,248 @@
+# HAPR-TLS-LIVE: Live TLS Scanning
+- id: HAPR-SCAN-001
+  title: No Deprecated TLS Versions Accepted
+  category: tls_live
+  tier: level2
+  severity: critical
+  weight: 10
+  description: >
+    Perform a live scan to verify that the HAProxy endpoint does not accept connections
+    using deprecated TLS versions (SSLv2, SSLv3, TLS 1.0, TLS 1.1).
+  rationale: >
+    Configuration analysis alone cannot guarantee runtime behavior, as OpenSSL compilation
+    flags or library versions may override config settings. A live scan confirms that
+    deprecated protocol versions are actually rejected by the running service.
+  remediation: >
+    If deprecated versions are accepted despite configuration, verify the OpenSSL
+    version supports the configured restrictions and rebuild if necessary. Check for
+    bind-line overrides that may re-enable old protocols.
+  references:
+    nist:
+    - SC-8
+    - SC-8(1)
+    - SC-13
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000439-WSR-000156
+    - SRG-APP-000442-WSR-000064
+  check_function: tls_live.check_deprecated_protocols_live
+  requires: scanner
+- id: HAPR-SCAN-002
+  title: No Weak Ciphers Negotiated
+  category: tls_live
+  tier: level2
+  severity: critical
+  weight: 10
+  description: >
+    Perform a live scan to verify that the HAProxy endpoint does not negotiate weak
+    cipher suites including NULL, EXPORT, DES, RC4, and anonymous ciphers.
+  rationale: >
+    Live cipher scanning validates that the running configuration actually rejects
+    weak ciphers. Misconfigured cipher strings, OpenSSL defaults, or compilation options
+    may allow weak ciphers even when the configuration appears correct.
+  remediation: >
+    If weak ciphers are negotiated, review the effective cipher list using openssl
+    ciphers and adjust ssl-default-bind-ciphers. Ensure no individual bind lines override
+    the global cipher settings.
+  references:
+    nist:
+    - SC-8(1)
+    - SC-13
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000439-WSR-000156
+    - SRG-APP-000179-WSR-000110
+  check_function: tls_live.check_weak_ciphers_live
+  requires: scanner
+- id: HAPR-SCAN-003
+  title: Valid Certificate Chain
+  category: tls_live
+  tier: level2
+  severity: high
+  weight: 7
+  description: >
+    Perform a live scan to verify that the server presents a valid certificate chain
+    from a trusted certificate authority, with no missing intermediate certificates.
+  rationale: >
+    An incomplete or invalid certificate chain causes TLS warnings or failures in
+    clients, pushing users to bypass security warnings. Missing intermediate certificates
+    are a common misconfiguration that breaks chain validation for strict clients.
+  remediation: >
+    Ensure the certificate file includes the full chain in order: server certificate,
+    intermediate certificates, and optionally the root CA. Use openssl s_client -connect
+    host:port to verify the chain.
+  references:
+    nist:
+    - SC-8
+    - IA-5(2)
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000427-WSR-000186
+  check_function: tls_live.check_certificate_chain
+  requires: scanner
+- id: HAPR-SCAN-004
+  title: Certificate Not Expired
+  category: tls_live
+  tier: level3
+  severity: critical
+  weight: 10
+  description: >
+    Perform a live scan to verify that the server certificate is currently valid and
+    has not expired or is not yet valid.
+  rationale: >
+    An expired certificate causes immediate TLS failures or browser warnings, degrading
+    security posture and user trust. Certificate expiration is a top cause of service
+    disruptions and may indicate neglected security maintenance processes.
+  remediation: >
+    Renew the certificate before expiration. Implement automated certificate renewal
+    using ACME/Let's Encrypt or your CA's renewal process. Set up monitoring alerts
+    for certificates expiring within 30 days.
+  references:
+    nist:
+    - SC-8
+    - SC-17
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000427-WSR-000186
+  check_function: tls_live.check_certificate_expiry
+  requires: scanner
+- id: HAPR-SCAN-005
+  title: No Known TLS Vulnerabilities
+  category: tls_live
+  tier: level3
+  severity: critical
+  weight: 10
+  description: >
+    Perform a live scan to check for known TLS implementation vulnerabilities including
+    Heartbleed (CVE-2014-0160), ROBOT attack, and CCS Injection (CVE-2014-0224).
+  rationale: >
+    These vulnerabilities allow attackers to extract private keys (Heartbleed), decrypt
+    TLS traffic (ROBOT), or perform man-in-the-middle attacks (CCS Injection). They
+    exist at the implementation level and cannot be detected through configuration
+    analysis alone.
+  remediation: >
+    Update OpenSSL to the latest patched version. Heartbleed requires OpenSSL 1.0.1g
+    or later. CCS Injection requires OpenSSL 0.9.8za, 1.0.0m, or 1.0.1h or later.
+    After patching, regenerate all private keys and certificates.
+  references:
+    nist:
+    - SC-8
+    - SI-2
+    - RA-5
+    owasp:
+    - A06:2021 Vulnerable and Outdated Components
+    stig:
+    - SRG-APP-000439-WSR-000156
+    - SRG-APP-000454-WSR-000170
+  check_function: tls_live.check_tls_vulnerabilities
+  requires: scanner
+- id: HAPR-SCAN-006
+  title: Secure Renegotiation Supported
+  category: tls_live
+  tier: level2
+  severity: medium
+  weight: 4
+  description: >
+    Perform a live scan to verify that the server supports secure TLS renegotiation
+    (RFC 5746) and does not allow insecure client-initiated renegotiation.
+  rationale: >
+    Insecure renegotiation allows attackers to inject plaintext into a TLS connection,
+    leading to request smuggling or data injection. Client- initiated renegotiation
+    can also be used for denial-of-service attacks by forcing expensive cryptographic
+    operations.
+  remediation: >
+    Ensure OpenSSL is compiled with secure renegotiation support (standard in modern
+    versions). Disable client-initiated renegotiation by updating to HAProxy 1.8+
+    which disables it by default, or use ssl-default-bind-options no-tls-tickets.
+  references:
+    nist:
+    - SC-8
+    - SC-13
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000439-WSR-000156
+  check_function: tls_live.check_secure_renegotiation_live
+  requires: scanner
+- id: HAPR-SCAN-007
+  title: Certificate Key Size Adequate
+  category: tls_live
+  tier: level2
+  severity: medium
+  weight: 4
+  description: >
+    Verify that certificate key sizes meet minimum requirements: RSA >= 2048 bits,
+    ECDSA >= 256 bits via live TLS scanning.
+  rationale: >
+    Certificates with inadequate key sizes are vulnerable to brute-force attacks.
+    NIST SP 800-52 Rev. 2 requires RSA keys of at least 2048 bits and ECDSA keys of
+    at least 256 bits for adequate security through 2030.
+  remediation: >
+    Generate certificates with adequate key sizes. For RSA, use at least 2048 bits
+    (4096 preferred). For ECDSA, use P-256 or P-384 curves.
+  references:
+    nist:
+    - SC-12
+    - SC-13
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000179-WSR-000110
+  check_function: tls_live.check_certificate_key_size
+  requires: scanner
+- id: HAPR-SCAN-008
+  title: Certificate Expiry Warning
+  category: tls_live
+  tier: level2
+  severity: medium
+  weight: 4
+  description: >
+    Warn if any certificate will expire within 30 days via live TLS scanning, providing
+    early notice for certificate renewal.
+  rationale: >
+    Certificate expiry causes service outages and security warnings for users. A 30-day
+    warning window provides adequate time for certificate renewal, even accounting
+    for procurement and approval processes in enterprise environments.
+  remediation: >
+    Renew certificates before they expire. Implement automated certificate management
+    (e.g., ACME/Let's Encrypt) to prevent expiry-related outages.
+  references:
+    nist:
+    - SC-12
+    - SC-17
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000175-WSR-000095
+  check_function: tls_live.check_certificate_expiry_warning
+  requires: scanner
+- id: HAPR-SCAN-009
+  title: Certificate Hostname Match
+  category: tls_live
+  tier: level2
+  severity: high
+  weight: 7
+  description: >
+    Verify that certificate subject or SAN entries match the target hostname via live
+    TLS scanning.
+  rationale: >
+    A certificate that does not match the hostname causes browser trust warnings and
+    may indicate a misconfigured or compromised server. RFC 6125 requires hostname
+    validation via SAN entries (preferred) or the CN in the subject.
+  remediation: >
+    Ensure certificates are issued with correct Subject Alternative Names (SANs) matching
+    all hostnames served. Use wildcard certificates for subdomains where appropriate.
+  references:
+    nist:
+    - SC-8(1)
+    - IA-5(2)
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000427-WSR-000186
+  check_function: tls_live.check_certificate_hostname_match
+  requires: scanner

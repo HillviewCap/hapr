@@ -1,0 +1,291 @@
+# HAPR-FND: Frontend Security
+- id: HAPR-FRT-001
+  title: Connection Limits on Frontends
+  category: frontend
+  tier: level1
+  severity: medium
+  weight: 4
+  description: >
+    Verify that frontend sections have connection limits configured to prevent resource
+    exhaustion from excessive concurrent connections.
+  rationale: >
+    Without frontend connection limits, an attacker can open thousands of connections
+    to exhaust HAProxy resources and prevent legitimate users from connecting. Limits
+    bound the maximum resource consumption per frontend.
+  remediation: >
+    Set maxconn in each frontend section. Example: frontend web
+      bind *:443 ssl crt /etc/ssl/cert.pem
+      maxconn 10000
+  references:
+    nist:
+    - SC-5
+    - SC-6
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000246-WSR-000149
+  check_function: frontend.check_frontend_connection_limits
+- id: HAPR-FRT-003
+  title: HTTP to HTTPS Redirect
+  category: frontend
+  tier: level1
+  severity: high
+  weight: 7
+  requires_mode: http
+  description: >
+    Verify that HTTP frontends redirect to HTTPS to ensure all traffic is encrypted
+    in transit.
+  rationale: >
+    Serving content over plain HTTP exposes all data to network interception. Redirecting
+    HTTP to HTTPS ensures encryption is applied to every connection, protecting credentials,
+    session tokens, and sensitive data from eavesdropping.
+  remediation: >
+    Configure an HTTP frontend that redirects to HTTPS. Example: frontend http-redirect
+      bind *:80
+      http-request redirect scheme https unless { ssl_fc }
+  references:
+    nist:
+    - SC-8
+    - SC-8(1)
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000439-WSR-000156
+    - SRG-APP-000015-WSR-000014
+  check_function: frontend.check_http_to_https_redirect
+- id: HAPR-FRT-004
+  title: WAF Integration Detected
+  category: frontend
+  tier: level2
+  severity: medium
+  weight: 4
+  requires_mode: http
+  description: >
+    Verify that web application firewall integration is present, such as SPOE-based
+    ModSecurity or similar WAF engine integration.
+  rationale: >
+    HAProxy alone provides basic traffic filtering but lacks deep packet inspection
+    capabilities. WAF integration enables detection and blocking of complex attack
+    payloads including SQL injection, cross-site scripting, and other OWASP Top 10
+    attacks.
+  remediation: >
+    Integrate a WAF engine using HAProxy SPOE (Stream Processing Offload Engine).
+    Example: filter spoe engine modsecurity config /etc/haproxy/spoe-modsecurity.conf
+  references:
+    nist:
+    - SI-3
+    - SI-4
+    owasp:
+    - A03:2021 Injection
+    stig:
+    - SRG-APP-000141-WSR-000076
+  check_function: frontend.check_waf_integration
+- id: HAPR-FRT-005
+  title: SQL Injection Protection Rules
+  category: frontend
+  tier: level3
+  severity: medium
+  weight: 4
+  requires_mode: http
+  description: >
+    Verify that ACL rules or WAF integration provides protection against SQL injection
+    patterns in request parameters and URLs.
+  rationale: >
+    SQL injection remains one of the most common and dangerous web application attacks.
+    While backend applications should use parameterized queries, proxy-level filtering
+    provides defense in depth by blocking common injection patterns before they reach
+    the application.
+  remediation: >
+    Add ACL rules to detect and block common SQL injection patterns. Example: acl
+    sqli_detect url_sub -i select union insert drop update delete acl sqli_param url_sub
+    -i ' OR 1=1 ' -- ;-- http-request deny if sqli_detect OR sqli_param
+  references:
+    nist:
+    - SI-10
+    - SI-3
+    owasp:
+    - A03:2021 Injection
+    stig:
+    - SRG-APP-000251-WSR-000157
+  check_function: frontend.check_sql_injection_protection
+- id: HAPR-FRT-006
+  title: XSS Protection Rules
+  category: frontend
+  tier: level3
+  severity: medium
+  weight: 4
+  requires_mode: http
+  description: >
+    Verify that ACL rules or WAF integration provides protection against cross-site
+    scripting patterns in request data.
+  rationale: >
+    Cross-site scripting allows attackers to inject malicious scripts into web pages
+    viewed by other users. Proxy-level filtering provides an additional layer of defense
+    by blocking common XSS patterns such as script tags and event handlers before
+    they reach the application.
+  remediation: >
+    Add ACL rules to detect and block common XSS patterns. Example: acl xss_detect
+    url_sub -i <script javascript: onerror onload http-request deny if xss_detect
+  references:
+    nist:
+    - SI-10
+    - SI-3
+    owasp:
+    - A03:2021 Injection
+    - A07:2021 Cross-Site Scripting
+    stig:
+    - SRG-APP-000251-WSR-000157
+  check_function: frontend.check_xss_protection
+- id: HAPR-FRT-007
+  title: X-Forwarded-For Configuration
+  category: frontend
+  tier: level1
+  severity: medium
+  weight: 4
+  requires_mode: http
+  description: >
+    Verify that option forwardfor is configured to pass the real client IP address
+    to backend servers via the X-Forwarded-For header.
+  rationale: >
+    Without option forwardfor, backend servers see HAProxy's IP as the client address,
+    making it impossible to implement IP-based access control, rate limiting, geo-blocking,
+    or accurate audit logging at the application level.
+  remediation: >
+    Add option forwardfor to frontends or defaults. Example: option forwardfor
+  references:
+    nist:
+    - AU-3
+    - AC-3
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000095-WSR-000056
+  check_function: frontend.check_xff_configured
+- id: HAPR-FRT-008
+  title: Bind Address Restrictions
+  category: frontend
+  tier: level1
+  severity: medium
+  weight: 4
+  description: >
+    Verify that frontend bind directives use specific IP addresses rather than wildcard
+    addresses (0.0.0.0, *, ::) to limit network exposure.
+  rationale: >
+    Binding to wildcard addresses exposes HAProxy on all network interfaces including
+    management, backend, and potentially untrusted networks. Binding to specific addresses
+    ensures the service is only accessible on intended interfaces, reducing the attack
+    surface.
+  remediation: >
+    Bind to specific IP addresses instead of wildcards. Example: bind 10.0.0.1:443
+    ssl crt /etc/ssl/cert.pem
+  references:
+    nist:
+    - SC-7
+    - CM-7
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000141-WSR-000076
+  check_function: frontend.check_bind_address_restrictions
+- id: HAPR-SPOE-001
+  title: SPOE WAF Filter Declared
+  category: frontend
+  tier: level2
+  severity: medium
+  weight: 4
+  description: >
+    Verify that a Stream Processing Offload Engine (SPOE) WAF filter is declared in
+    frontend sections for web application firewall integration.
+  rationale: >
+    SPOE allows HAProxy to offload request inspection to external agents like ModSecurity
+    or CRS for deep packet inspection. This provides WAF capabilities at the proxy
+    level, required by PCI DSS 4.0 Requirement 6.4.2 for public-facing web applications.
+  remediation: >
+    Configure SPOE WAF filter in frontends. Example: filter spoe engine modsecurity
+    config /etc/haproxy/spoe-modsecurity.conf
+  references:
+    nist:
+    - SI-3
+    - SI-4
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000251-WSR-000157
+  check_function: frontend.check_spoe_waf_filter
+- id: HAPR-SPOE-002
+  title: SPOE Agent Timeout Configuration
+  category: frontend
+  tier: level2
+  severity: low
+  weight: 2
+  description: >
+    Verify that SPOE agent timeout values are configured to prevent request stalling
+    when the offload agent is unresponsive.
+  rationale: >
+    Without timeouts, a slow or unresponsive SPOE agent can cause requests to hang
+    indefinitely. Configuring processing and hello timeouts ensures graceful degradation
+    when the WAF agent is unavailable.
+  remediation: >
+    Configure SPOE agent timeouts. Ensure the SPOE configuration includes timeout
+    hello and timeout processing directives.
+  references:
+    nist:
+    - SC-5
+    - SC-10
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000246-WSR-000149
+  check_function: frontend.check_spoe_agent_timeout
+- id: HAPR-COMP-001
+  title: Compression BREACH Risk Assessment
+  category: frontend
+  tier: level2
+  severity: medium
+  weight: 4
+  description: >
+    Verify that HTTP compression on TLS-enabled frontends does not expose the configuration
+    to BREACH attacks (CVE-2013-3587).
+  rationale: >
+    BREACH exploits HTTP compression on TLS connections to extract secrets from responses.
+    When compression is enabled on SSL frontends, an attacker can progressively guess
+    secret values in compressed responses by observing response size changes.
+  remediation: >
+    Either disable compression on SSL-enabled frontends, or ensure compression is
+    only used on non-sensitive content. Consider using per-response compression controls
+    to exclude sensitive pages.
+  references:
+    nist:
+    - SC-8(1)
+    - SC-13
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000439-WSR-000156
+  check_function: frontend.check_compression_breach_risk
+- id: HAPR-PROXY-001
+  title: PROXY Protocol Source Restricted
+  category: frontend
+  tier: level2
+  severity: high
+  weight: 7
+  description: >
+    Verify that PROXY protocol listeners restrict accepted sources to trusted upstream
+    proxies to prevent IP spoofing.
+  rationale: >
+    The PROXY protocol allows upstream proxies to communicate the original client
+    IP. If accept-proxy is enabled without source restrictions, any client can forge
+    the PROXY protocol header and spoof their IP address, bypassing IP-based access
+    controls.
+  remediation: >
+    Restrict PROXY protocol listeners to trusted source IPs using ACLs. Example: acl
+    trusted_proxy src 10.0.0.0/8 http-request deny unless trusted_proxy
+  references:
+    nist:
+    - AC-3
+    - SC-7
+    owasp:
+    - A01:2021 Broken Access Control
+    stig:
+    - SRG-APP-000315-WSR-000004
+  check_function: frontend.check_proxy_protocol_restricted

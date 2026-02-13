@@ -54,6 +54,7 @@ include = ["hapr*"]
 
 [tool.setuptools.package-data]
 "hapr.data" = ["*.yaml"]
+"hapr.data.checks" = ["*.yaml"]
 "hapr.templates" = ["*.j2"]
 
 [tool.pytest.ini_options]

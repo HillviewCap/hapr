@@ -1,0 +1,243 @@
+# HAPR-GBL: Global & Defaults Security
+- id: HAPR-GBL-001
+  title: Secure Defaults Section Exists
+  category: global_defaults
+  tier: baseline
+  severity: high
+  weight: 7
+  description: >
+    Verify that a defaults section exists and contains baseline security settings
+    including timeouts, logging, and connection options.
+  rationale: >
+    The defaults section provides a security baseline that all frontends and backends
+    inherit. Without a properly configured defaults section, each section must independently
+    specify every setting, increasing the risk of accidental omissions.
+  remediation: >
+    Create a defaults section with essential security settings. Example: defaults
+      mode http
+      log global
+      option httplog
+      option dontlognull
+      timeout connect 5s
+      timeout client 30s
+      timeout server 30s
+  references:
+    nist:
+    - CM-6
+    - CM-2
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000516-WSR-000174
+  check_function: global_defaults.check_secure_defaults
+- id: HAPR-GBL-002
+  title: Stats Socket Permissions Restricted
+  category: global_defaults
+  tier: level1
+  severity: high
+  weight: 7
+  description: >
+    Verify that the HAProxy stats socket has restrictive file permissions and is not
+    world-accessible.
+  rationale: >
+    The stats socket provides full administrative control over HAProxy, including
+    the ability to disable servers, change weights, and view sensitive metrics. World-readable
+    or world-writable permissions allow any local user to manipulate the proxy configuration.
+  remediation: >
+    Set restrictive permissions on the stats socket. Example: stats socket /var/run/haproxy/admin.sock
+    mode 660 level admin user haproxy group haproxy
+  references:
+    nist:
+    - AC-3
+    - AC-6
+    - CM-6
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000141-WSR-000076
+    - SRG-APP-000315-WSR-000004
+  check_function: global_defaults.check_stats_socket_permissions
+- id: HAPR-GBL-003
+  title: DNS Resolver Configured
+  category: global_defaults
+  tier: level2
+  severity: low
+  weight: 2
+  description: >
+    Verify that a DNS resolver section is configured for backends using DNS-based
+    server discovery, ensuring DNS resolution is controlled.
+  rationale: >
+    Using system DNS resolution without explicit configuration may rely on insecure
+    or unreliable resolvers. A dedicated resolver section allows specifying trusted
+    DNS servers, controlling TTL behavior, and ensuring HAProxy can resolve backend
+    addresses even during DNS disruptions.
+  remediation: >
+    Configure a resolvers section with trusted DNS servers. Example: resolvers mydns
+      nameserver dns1 10.0.0.2:53
+      nameserver dns2 10.0.0.3:53
+      resolve_retries 3
+      timeout resolve 1s
+      timeout retry 1s
+      hold valid 10s
+  references:
+    nist:
+    - SC-20
+    - SC-22
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000516-WSR-000174
+  check_function: global_defaults.check_dns_resolver
+- id: HAPR-GBL-004
+  title: Global Maxconn Set
+  category: global_defaults
+  tier: baseline
+  severity: medium
+  weight: 4
+  description: >
+    Verify that the global maxconn value is explicitly set to limit the total number
+    of concurrent connections HAProxy will accept.
+  rationale: >
+    Without a global maxconn, HAProxy may accept more connections than system resources
+    can support, leading to memory exhaustion and process instability. An explicit
+    limit ensures predictable resource consumption and prevents system-wide impact
+    from traffic surges.
+  remediation: >
+    Set maxconn in the global section based on available system resources. Example:
+    global
+      maxconn 50000
+  references:
+    nist:
+    - SC-5
+    - SC-6
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000246-WSR-000149
+  check_function: global_defaults.check_global_maxconn
+- id: HAPR-GBL-006
+  title: Hard-Stop-After Configured
+  category: global_defaults
+  tier: level1
+  severity: low
+  weight: 2
+  description: >
+    Verify that hard-stop-after is configured in the global section to set a maximum
+    time for graceful shutdown during reloads.
+  rationale: >
+    Without hard-stop-after, HAProxy may wait indefinitely for active connections
+    to close during a reload or shutdown, preventing new configuration from taking
+    effect. This can leave stale processes running and consuming resources, and delay
+    security updates.
+  remediation: >
+    Add hard-stop-after to the global section. Example: hard-stop-after 30s
+  references:
+    nist:
+    - CM-6
+    - SC-5
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000516-WSR-000174
+  check_function: global_defaults.check_hard_stop_after
+- id: HAPR-GBL-007
+  title: Nbproc Not Used (Deprecated)
+  category: global_defaults
+  tier: level1
+  severity: medium
+  weight: 4
+  description: >
+    Verify that the deprecated nbproc directive is not used. HAProxy 2.5+ deprecates
+    nbproc in favor of nbthread for multi-processing.
+  rationale: >
+    The nbproc directive spawns multiple HAProxy processes which do not share state
+    (stick tables, counters, health check results). This breaks rate limiting, session
+    persistence, and coordinated health checks. The nbthread directive provides multi-core
+    scaling while maintaining shared state within a single process.
+  remediation: >
+    Remove nbproc from the global section and use nbthread instead. Example: nbthread
+    4
+  references:
+    nist:
+    - CM-6
+    - CM-2
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000516-WSR-000174
+  check_function: global_defaults.check_nbproc_not_used
+- id: HAPR-LUA-001
+  title: Lua Memory Limit Set
+  category: global_defaults
+  tier: level2
+  severity: medium
+  weight: 4
+  description: >
+    Verify that Lua script memory limits are configured when Lua scripts are loaded
+    in the HAProxy configuration.
+  rationale: >
+    Lua scripts executing without memory limits can consume unbounded memory, leading
+    to out-of-memory conditions and service disruption. Setting tune.lua.maxmem prevents
+    a single Lua context from exhausting system resources.
+  remediation: >
+    Set tune.lua.maxmem in the global section to limit Lua memory. Example: tune.lua.maxmem
+    0 (unlimited, default) or tune.lua.maxmem 64 (64 MB limit)
+  references:
+    nist:
+    - SC-5
+    - SC-6
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000246-WSR-000149
+  check_function: global_defaults.check_lua_memory_limit
+- id: HAPR-LUA-002
+  title: Lua Forced Yield Configured
+  category: global_defaults
+  tier: level2
+  severity: low
+  weight: 2
+  description: >
+    Verify that Lua forced yield is configured to prevent Lua scripts from monopolizing
+    CPU time in HAProxy's event loop.
+  rationale: >
+    Without forced yield, a long-running Lua script can block the event loop and cause
+    all connections to stall. The tune.lua.forced-yield parameter forces Lua to yield
+    after a specified number of instructions, maintaining responsiveness.
+  remediation: >
+    Set tune.lua.forced-yield in the global section. Example: tune.lua.forced-yield
+    10000
+  references:
+    nist:
+    - SC-5
+    - SC-6
+    owasp:
+    - A05:2021 Security Misconfiguration
+    stig:
+    - SRG-APP-000246-WSR-000149
+  check_function: global_defaults.check_lua_forced_yield
+- id: HAPR-PEER-001
+  title: Peer Communication Encrypted
+  category: global_defaults
+  tier: level2
+  severity: medium
+  weight: 4
+  description: >
+    Verify that HAProxy peer communication (stick-table replication) uses encrypted
+    connections between nodes.
+  rationale: >
+    HAProxy peers sections replicate stick-table data between cluster nodes. Without
+    encryption, this replication traffic exposes session data, rate limiting counters,
+    and health information to network eavesdroppers.
+  remediation: >
+    Configure SSL for peer communication by adding ssl, crt, and ca-file directives
+    to the peers section server lines.
+  references:
+    nist:
+    - SC-8
+    - SC-8(1)
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000439-WSR-000156
+  check_function: global_defaults.check_peer_encryption

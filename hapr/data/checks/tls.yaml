@@ -1,0 +1,337 @@
+# HAPR-TLS: TLS/SSL Configuration
+- id: HAPR-TLS-001
+  title: Minimum TLS Version 1.2
+  category: tls
+  tier: baseline
+  severity: critical
+  weight: 10
+  description: >
+    Verify that the configuration enforces TLS 1.2 as the minimum accepted protocol
+    version, disabling TLS 1.0 and 1.1.
+  rationale: >
+    TLS 1.0 and 1.1 contain known cryptographic weaknesses including susceptibility
+    to BEAST, POODLE, and other downgrade attacks. All major browsers and compliance
+    frameworks require TLS 1.2 as the minimum.
+  remediation: >
+    Set ssl-default-bind-options to include no-sslv3 no-tlsv10 no-tlsv11, or use ssl-min-ver
+    TLSv1.2 in HAProxy 2.x and later.
+  references:
+    nist:
+    - SC-8
+    - SC-8(1)
+    - SC-13
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000439-WSR-000156
+    - SRG-APP-000442-WSR-000064
+  check_function: tls.check_min_tls_version
+- id: HAPR-TLS-002
+  title: No Weak Cipher Strings
+  category: tls
+  tier: baseline
+  severity: critical
+  weight: 10
+  description: >
+    Verify that the cipher configuration does not include known weak or broken cipher
+    suites such as DES, RC4, MD5-based, NULL, or EXPORT ciphers.
+  rationale: >
+    Weak ciphers can be broken with feasible computational effort, allowing attackers
+    to decrypt intercepted traffic. RC4 has known biases, DES has a 56-bit key, and
+    EXPORT ciphers were intentionally weakened.
+  remediation: >
+    Configure ssl-default-bind-ciphers with a strong cipher string that excludes weak
+    algorithms. Example: ssl-default-bind-ciphers ECDHE+AESGCM:DHE+AESGCM:!aNULL:!MD5:!DSS:!RC4:!DES:!3DES:!EXPORT
+  references:
+    nist:
+    - SC-8(1)
+    - SC-13
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000439-WSR-000156
+    - SRG-APP-000179-WSR-000110
+  check_function: tls.check_no_weak_ciphers
+- id: HAPR-TLS-003
+  title: SSL Default Bind Options Set
+  category: tls
+  tier: baseline
+  severity: high
+  weight: 7
+  description: >
+    Verify that ssl-default-bind-options is explicitly configured in the global section
+    to enforce secure TLS defaults across all bind lines.
+  rationale: >
+    Without global ssl-default-bind-options, each bind line must individually specify
+    TLS settings, increasing the risk of inconsistent or insecure configurations across
+    frontends.
+  remediation: >
+    Add ssl-default-bind-options in the global section. Example: ssl-default-bind-options
+    no-sslv3 no-tlsv10 no-tlsv11 no-tls-tickets
+  references:
+    nist:
+    - SC-8
+    - CM-6
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000439-WSR-000156
+  check_function: tls.check_ssl_default_bind_options
+- id: HAPR-TLS-004
+  title: SSL Default Bind Ciphers Set
+  category: tls
+  tier: level1
+  severity: high
+  weight: 7
+  description: >
+    Verify that ssl-default-bind-ciphers is explicitly configured in the global section
+    to enforce a strong cipher suite across all bind lines.
+  rationale: >
+    A global cipher configuration ensures consistent cryptographic strength across
+    all frontends. Without it, HAProxy falls back to OpenSSL defaults which may include
+    weak ciphers depending on the library version.
+  remediation: >
+    Set ssl-default-bind-ciphers in the global section with a curated list of strong
+    ciphers. Example: ssl-default-bind-ciphers ECDHE+AESGCM:DHE+AESGCM:!aNULL:!MD5:!DSS
+  references:
+    nist:
+    - SC-8(1)
+    - SC-13
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000179-WSR-000110
+  check_function: tls.check_ssl_default_bind_ciphers
+- id: HAPR-TLS-005
+  title: TLS 1.3 Ciphersuites Configured
+  category: tls
+  tier: level1
+  severity: medium
+  weight: 4
+  description: >
+    Verify that ssl-default-bind-ciphersuites is configured to specify the allowed
+    TLS 1.3 cipher suites explicitly.
+  rationale: >
+    TLS 1.3 uses a separate ciphersuite directive from TLS 1.2. While all TLS 1.3
+    ciphers are currently considered strong, explicitly setting them ensures forward
+    control and auditability as cryptographic standards evolve.
+  remediation: >
+    Set ssl-default-bind-ciphersuites in the global section. Example: ssl-default-bind-ciphersuites
+    TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256
+  references:
+    nist:
+    - SC-13
+    - SC-8(1)
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000179-WSR-000110
+  check_function: tls.check_ssl_default_bind_ciphersuites
+- id: HAPR-TLS-006
+  title: HSTS Header Configured
+  category: tls
+  tier: level1
+  severity: high
+  weight: 7
+  description: >
+    Verify that HTTP Strict Transport Security (HSTS) is configured to instruct browsers
+    to only connect via HTTPS.
+  rationale: >
+    Without HSTS, users may initially connect over plain HTTP and be vulnerable to
+    man-in-the-middle attacks during the redirect to HTTPS. HSTS eliminates this window
+    by instructing browsers to use HTTPS for all future requests.
+  remediation: >
+    Add an HSTS response header with a minimum max-age of 31536000 seconds. Example:
+    http-response set-header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+  references:
+    nist:
+    - SC-8
+    - SC-8(1)
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000439-WSR-000156
+    - SRG-APP-000015-WSR-000014
+  check_function: tls.check_hsts_configured
+- id: HAPR-TLS-007
+  title: DH Parameter Size at Least 2048 Bits
+  category: tls
+  tier: level1
+  severity: medium
+  weight: 4
+  description: >
+    Verify that the Diffie-Hellman parameter size is set to at least 2048 bits to
+    ensure adequate key exchange strength.
+  rationale: >
+    DH parameters smaller than 2048 bits are vulnerable to precomputation attacks
+    such as Logjam. NIST recommends a minimum of 2048 bits for DH key exchange to
+    provide adequate security through 2030.
+  remediation: >
+    Set tune.ssl.default-dh-param to at least 2048 in the global section. Example:
+    tune.ssl.default-dh-param 2048
+  references:
+    nist:
+    - SC-13
+    - SC-12
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000179-WSR-000110
+  check_function: tls.check_dh_param_size
+- id: HAPR-TLS-008
+  title: TLS Session Tickets Disabled
+  category: tls
+  tier: level1
+  severity: medium
+  weight: 4
+  description: >
+    Verify that TLS session tickets are disabled via the no-tls-tickets option in
+    ssl-default-bind-options or on individual bind lines.
+  rationale: >
+    TLS session tickets allow session resumption without server-side state, but the
+    ticket encryption key is shared across all connections. If the server is compromised,
+    all session tickets can be decrypted, breaking forward secrecy. Disabling tickets
+    forces full handshakes or server-side session caching.
+  remediation: >
+    Add no-tls-tickets to ssl-default-bind-options in the global section. Example:
+    ssl-default-bind-options no-sslv3 no-tlsv10 no-tlsv11 no-tls-tickets
+  references:
+    nist:
+    - SC-8(1)
+    - SC-13
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000439-WSR-000156
+  check_function: tls.check_tls_session_tickets_disabled
+- id: HAPR-TLS-009
+  title: SSL Default Server Options Set
+  category: tls
+  tier: level1
+  severity: medium
+  weight: 4
+  description: >
+    Verify that ssl-default-server-options is configured in the global section to
+    enforce secure TLS defaults for backend server connections.
+  rationale: >
+    Without global ssl-default-server-options, each server line must individually
+    specify TLS settings for backend connections, increasing the risk of inconsistent
+    or insecure configurations. This directive centralizes backend TLS settings similar
+    to how ssl-default-bind-options centralizes frontend TLS settings.
+  remediation: >
+    Add ssl-default-server-options in the global section. Example: ssl-default-server-options
+    ssl-min-ver TLSv1.2
+  references:
+    nist:
+    - SC-8
+    - CM-6
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000439-WSR-000156
+  check_function: tls.check_ssl_default_server_options
+- id: HAPR-TLS-010
+  title: OCSP Stapling Configured
+  category: tls
+  tier: level2
+  severity: medium
+  weight: 4
+  description: >
+    Verify that OCSP stapling is configured to provide certificate revocation status
+    to clients without requiring them to contact the CA directly.
+  rationale: >
+    Without OCSP stapling, clients must contact the CA's OCSP responder independently,
+    which adds latency and exposes browsing patterns. OCSP stapling embeds the revocation
+    status in the TLS handshake, improving both privacy and performance.
+  remediation: >
+    Configure OCSP stapling on bind lines with 'ocsp-update on' or provide pre-fetched
+    OCSP responses alongside certificates.
+  references:
+    nist:
+    - SC-8(1)
+    - SC-13
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000439-WSR-000156
+  check_function: tls.check_ocsp_stapling
+- id: HAPR-TLS-011
+  title: FIPS-Approved Cipher Suites Only
+  category: tls
+  tier: level3
+  severity: high
+  weight: 7
+  description: >
+    Verify that only FIPS 140-2 approved cipher suites are configured, excluding non-approved
+    algorithms such as CHACHA20, CAMELLIA, and SEED.
+  rationale: >
+    FIPS 140-2 compliance requires the use of NIST-approved cryptographic algorithms.
+    Non-FIPS ciphers may be strong but are not certified for use in government or
+    regulated environments.
+  remediation: >
+    Configure ssl-default-bind-ciphers to include only FIPS-approved algorithms such
+    as AES-GCM with SHA-256/384 and ECDHE/DHE key exchange. Remove CHACHA20, CAMELLIA,
+    SEED, and other non-FIPS ciphers.
+  references:
+    nist:
+    - SC-13
+    - SC-12
+    owasp:
+    - A02:2021 Cryptographic Failures
+    stig:
+    - SRG-APP-000179-WSR-000110
+    - SRG-APP-000439-WSR-000156
+  check_function: tls.check_fips_ciphers
+- id: HAPR-MTLS-001
+  title: Mutual TLS Client Verification
+  category: tls
+  tier: level3
+  severity: high
+  weight: 7
+  description: >
+    Verify that mutual TLS (mTLS) is configured with client certificate verification
+    on SSL bind lines for zero-trust environments.
+  rationale: >
+    Mutual TLS ensures both server and client authenticate each other using certificates.
+    This is essential for zero-trust architectures where every connection must be
+    verified, preventing unauthorized clients from accessing services.
+  remediation: >
+    Add 'verify required' and 'ca-file <path>' to SSL bind lines. Example: bind :443
+    ssl crt /etc/haproxy/cert.pem verify required ca-file /etc/haproxy/ca.pem
+  references:
+    nist:
+    - IA-3
+    - IA-5(2)
+    - SC-8(1)
+    owasp:
+    - A07:2021 Identification and Authentication Failures
+    stig:
+    - SRG-APP-000219-WSR-000036
+    - SRG-APP-000427-WSR-000186
+  check_function: tls.check_mtls_client_verification
+- id: HAPR-MTLS-002
+  title: Client Certificate CRL Configured
+  category: tls
+  tier: level3
+  severity: medium
+  weight: 4
+  description: >
+    Verify that Certificate Revocation Lists (CRLs) are configured for client certificate
+    verification to handle revoked certificates.
+  rationale: >
+    Without CRL checking, revoked client certificates may still be accepted for authentication.
+    CRL files ensure that compromised or decommissioned client certificates are properly
+    rejected.
+  remediation: >
+    Add 'crl-file <path>' to bind lines that use 'verify required'. Example: bind
+    :443 ssl crt /etc/haproxy/cert.pem verify required ca-file /etc/haproxy/ca.pem
+    crl-file /etc/haproxy/crl.pem
+  references:
+    nist:
+    - IA-5(2)
+    - SC-12
+    owasp:
+    - A07:2021 Identification and Authentication Failures
+    stig:
+    - SRG-APP-000175-WSR-000095
+  check_function: tls.check_client_crl_configured
