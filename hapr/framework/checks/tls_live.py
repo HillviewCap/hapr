@@ -235,9 +235,11 @@ def check_secure_renegotiation_live(
         )
 
     insecure = []
+    checked = 0
     for sr in scan_results:
         if sr.error:
             continue
+        checked += 1
         if not sr.secure_renegotiation:
             insecure.append(f"{sr.target}:{sr.port} supports insecure renegotiation")
 
@@ -246,7 +248,7 @@ def check_secure_renegotiation_live(
             check_id="HAPR-SCAN-006",
             status=Status.PASS,
             message="All targets support secure renegotiation",
-            evidence=f"Checked {len(scan_results)} target(s)",
+            evidence=f"Checked {checked} target(s)",
         )
     else:
         return Finding(
