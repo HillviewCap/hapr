@@ -239,10 +239,11 @@ def check_waf_integration(config: HAProxyConfig) -> Finding:
         list(config.frontends)
         + list(config.backends)
         + list(config.listens)
+        + list(config.defaults)
     )
 
     for section in all_sections:
-        section_label = section.name or "(unnamed)"
+        section_label = getattr(section, "name", None) or "(unnamed)"
 
         for directive in section.directives:
             combined = f"{directive.keyword} {directive.args}"
