@@ -7,6 +7,7 @@ internal architecture details, or other sensitive information to clients.
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from ...models import HAProxyConfig, Finding, Status
 
@@ -37,6 +38,8 @@ def check_server_header_removed(config: HAProxyConfig) -> Finding:
         sections.append(("defaults", d.name or "(unnamed)", d.directives))
     for fe in config.frontends:
         sections.append(("frontend", fe.name, fe.directives))
+    for be in config.backends:
+        sections.append(("backend", be.name, be.directives))
     for ls in config.listens:
         sections.append(("listen", ls.name, ls.directives))
 
@@ -55,9 +58,9 @@ def check_server_header_removed(config: HAProxyConfig) -> Finding:
                 )
                 found = True
 
-            # Modern syntax: http-response set-header Server <value>
+            # Modern syntax: http-response set-header/add-header Server <value>
             if kw == "http-response" and re.search(
-                r"set-header\s+server\b", args_lower
+                r"(?:set-header|add-header)\s+server\b", args_lower
             ):
                 evidence_parts.append(
                     f"{kind} '{name}': http-response set-header Server (custom value)"
@@ -120,6 +123,8 @@ def check_custom_error_pages(config: HAProxyConfig) -> Finding:
         sections.append(("defaults", d.name or "(unnamed)", d.directives))
     for fe in config.frontends:
         sections.append(("frontend", fe.name, fe.directives))
+    for be in config.backends:
+        sections.append(("backend", be.name, be.directives))
     for ls in config.listens:
         sections.append(("listen", ls.name, ls.directives))
 
@@ -212,6 +217,8 @@ def check_version_hidden(config: HAProxyConfig) -> Finding:
         sections.append(("defaults", d.name or "(unnamed)", d.directives))
     for fe in config.frontends:
         sections.append(("frontend", fe.name, fe.directives))
+    for be in config.backends:
+        sections.append(("backend", be.name, be.directives))
     for ls in config.listens:
         sections.append(("listen", ls.name, ls.directives))
 
@@ -301,6 +308,8 @@ def check_stats_version_hidden(config: HAProxyConfig) -> Finding:
         sections.append(("defaults", d.name or "(unnamed)", d))
     for fe in config.frontends:
         sections.append(("frontend", fe.name, fe))
+    for be in config.backends:
+        sections.append(("backend", be.name, be))
     for ls in config.listens:
         sections.append(("listen", ls.name, ls))
 
@@ -392,6 +401,8 @@ def check_xff_spoofing_prevention(config: HAProxyConfig) -> Finding:
         sections.append(("defaults", d.name or "(unnamed)", d))
     for fe in config.frontends:
         sections.append(("frontend", fe.name, fe))
+    for be in config.backends:
+        sections.append(("backend", be.name, be))
     for ls in config.listens:
         sections.append(("listen", ls.name, ls))
 

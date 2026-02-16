@@ -81,6 +81,7 @@
   tier: baseline
   severity: high
   weight: 7
+  requires_mode: http
   description: >
     Verify that the HTTP request timeout (timeout http-request) is set to limit how
     long HAProxy waits for a complete HTTP request.
@@ -133,6 +134,7 @@
   tier: baseline
   severity: medium
   weight: 4
+  requires_mode: http
   description: >
     Verify that the HTTP keep-alive timeout (timeout http-keep-alive) is explicitly
     set to limit idle keep-alive connection persistence.
