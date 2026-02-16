@@ -241,6 +241,7 @@
   title: Compression BREACH Risk Assessment
   category: frontend
   tier: level2
+  requires_mode: http
   severity: medium
   weight: 4
   description: >

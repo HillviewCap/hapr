@@ -81,6 +81,7 @@
   title: Cookie Attributes Set Securely
   category: backend
   tier: level1
+  requires_mode: http
   severity: medium
   weight: 4
   description: >
@@ -162,6 +163,7 @@
   title: Cache Security Controls
   category: backend
   tier: level2
+  requires_mode: http
   severity: medium
   weight: 4
   description: >
