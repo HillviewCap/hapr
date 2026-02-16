@@ -98,7 +98,7 @@
   references:
     nist:
     - SC-8
-    - SI-11
+    - SC-7
     owasp:
     - A05:2021 Security Misconfiguration
     stig:
@@ -217,6 +217,7 @@
   tier: level2
   severity: low
   weight: 2
+  requires_mode: http
   description: >
     Verify that the Cross-Origin-Resource-Policy (CORP) header is set to control which
     origins can embed or load resources from this site.
