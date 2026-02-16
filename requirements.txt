@@ -4,7 +4,7 @@ click==8.3.1
 Jinja2==3.1.6
 plotly==6.5.2
 PyYAML==6.0.1
-rich==13.7.1
+rich==14.3.2
 sslyze==6.3.0
 nvdlib==0.8.3
 
