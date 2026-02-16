@@ -103,12 +103,17 @@ def check_stats_socket_permissions(config: HAProxyConfig) -> Finding:
 
         if "mode " not in args:
             issues.append(f"Stats socket missing mode restriction: {args}")
-        elif "mode 600" not in args and "mode 660" not in args:
-            # Check if mode is restrictive enough
+        else:
+            # Extract mode value and check if it is restrictive enough.
+            # Modes are octal-style strings (e.g. "660", "600", "700").
+            # A mode is too permissive when the "other" digit (third digit)
+            # grants any access, i.e. is non-zero.
             mode_start = args.index("mode ") + 5
-            mode_val = args[mode_start:mode_start + 3].strip()
-            if mode_val and int(mode_val) > 660:
-                issues.append(f"Stats socket mode too permissive ({mode_val}): {args}")
+            mode_val = args[mode_start:].split()[0] if args[mode_start:].strip() else ""
+            if mode_val and len(mode_val) == 3 and mode_val.isdigit():
+                other_bits = int(mode_val[2])
+                if other_bits > 0:
+                    issues.append(f"Stats socket mode too permissive ({mode_val}): {args}")
 
         if "level " not in args and "admin" in args.lower():
             issues.append(f"Stats socket allows admin without level restriction: {args}")

@@ -3676,3 +3676,527 @@ backend bk_web
         assert finding.check_id == "HAPR-INF-005"
         assert finding.status == Status.PASS
         assert "backend" in finding.evidence.lower()
+
+
+
+# ===========================================================================
+# Global/Defaults Category Validation Tests
+# ===========================================================================
+
+from hapr.framework.checks.global_defaults import (
+    check_secure_defaults,
+    check_stats_socket_permissions as check_stats_socket_perms,
+    check_dns_resolver,
+    check_global_maxconn,
+    check_nbproc_not_used,
+    check_lua_memory_limit,
+    check_lua_forced_yield,
+)
+
+
+# ---------------------------------------------------------------------------
+# HAPR-GBL-001: Secure Defaults
+# ---------------------------------------------------------------------------
+
+class TestSecureDefaults:
+    """Test check_secure_defaults for HAPR-GBL-001."""
+
+    def test_pass_all_essential_directives(self):
+        config = parse_string("""
+defaults
+    mode http
+    log global
+    timeout client 30s
+    timeout server 30s
+    timeout connect 5s
+""")
+        finding = check_secure_defaults(config)
+        assert finding.check_id == "HAPR-GBL-001"
+        assert finding.status == Status.PASS
+
+    def test_fail_no_defaults_section(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = check_secure_defaults(config)
+        assert finding.check_id == "HAPR-GBL-001"
+        assert finding.status == Status.FAIL
+
+    def test_partial_some_missing(self):
+        config = parse_string("""
+defaults
+    mode http
+    log global
+    timeout client 30s
+""")
+        finding = check_secure_defaults(config)
+        assert finding.check_id == "HAPR-GBL-001"
+        assert finding.status == Status.PARTIAL
+
+    def test_fail_most_missing(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = check_secure_defaults(config)
+        assert finding.check_id == "HAPR-GBL-001"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-GBL-002: Stats Socket Permissions - Extended
+# ---------------------------------------------------------------------------
+
+class TestStatsSocketPermissionsExtended:
+    """Extended tests for check_stats_socket_permissions (HAPR-GBL-002)."""
+
+    def test_not_applicable_no_socket(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = check_stats_socket_perms(config)
+        assert finding.check_id == "HAPR-GBL-002"
+        assert finding.status == Status.NOT_APPLICABLE
+
+    def test_fail_missing_mode(self):
+        config = parse_string("""
+global
+    stats socket /var/run/haproxy.sock
+""")
+        finding = check_stats_socket_perms(config)
+        assert finding.check_id == "HAPR-GBL-002"
+        assert finding.status == Status.FAIL
+
+    def test_fail_mode_666_too_permissive(self):
+        config = parse_string("""
+global
+    stats socket /var/run/haproxy.sock mode 666
+""")
+        finding = check_stats_socket_perms(config)
+        assert finding.check_id == "HAPR-GBL-002"
+        assert finding.status == Status.FAIL
+        assert "permissive" in finding.evidence.lower()
+
+    def test_pass_mode_700_restrictive(self):
+        """Mode 700 grants owner-only access and should PASS."""
+        config = parse_string("""
+global
+    stats socket /var/run/haproxy.sock mode 700
+""")
+        finding = check_stats_socket_perms(config)
+        assert finding.check_id == "HAPR-GBL-002"
+        assert finding.status == Status.PASS
+
+    def test_pass_mode_600(self):
+        config = parse_string("""
+global
+    stats socket /var/run/haproxy.sock mode 600
+""")
+        finding = check_stats_socket_perms(config)
+        assert finding.check_id == "HAPR-GBL-002"
+        assert finding.status == Status.PASS
+
+    def test_fail_world_writable_dir(self):
+        config = parse_string("""
+global
+    stats socket /dev/shm/haproxy.sock mode 660
+""")
+        finding = check_stats_socket_perms(config)
+        assert finding.check_id == "HAPR-GBL-002"
+        assert finding.status == Status.FAIL
+        assert "world-writable" in finding.evidence.lower()
+
+
+# ---------------------------------------------------------------------------
+# HAPR-GBL-003: DNS Resolver
+# ---------------------------------------------------------------------------
+
+class TestDNSResolver:
+    """Test check_dns_resolver for HAPR-GBL-003."""
+
+    def test_not_applicable_all_ip_servers(self):
+        config = parse_string("""
+backend bk_web
+    server web1 10.0.0.1:80 check
+    server web2 10.0.0.2:80 check
+""")
+        finding = check_dns_resolver(config)
+        assert finding.check_id == "HAPR-GBL-003"
+        assert finding.status == Status.NOT_APPLICABLE
+
+    def test_fail_hostname_without_resolver(self):
+        config = parse_string("""
+backend bk_web
+    server web1 web1.example.com:80 check
+""")
+        finding = check_dns_resolver(config)
+        assert finding.check_id == "HAPR-GBL-003"
+        assert finding.status == Status.FAIL
+
+    def test_pass_hostname_with_resolver(self):
+        config = parse_string("""
+backend bk_web
+    server web1 web1.example.com:80 check resolvers mydns
+""")
+        finding = check_dns_resolver(config)
+        assert finding.check_id == "HAPR-GBL-003"
+        assert finding.status == Status.PASS
+
+    def test_not_applicable_no_servers(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = check_dns_resolver(config)
+        assert finding.check_id == "HAPR-GBL-003"
+        assert finding.status == Status.NOT_APPLICABLE
+
+
+# ---------------------------------------------------------------------------
+# HAPR-GBL-004: Global Maxconn
+# ---------------------------------------------------------------------------
+
+class TestGlobalMaxconn:
+    """Test check_global_maxconn for HAPR-GBL-004."""
+
+    def test_pass_maxconn_set(self):
+        config = parse_string("""
+global
+    maxconn 4096
+""")
+        finding = check_global_maxconn(config)
+        assert finding.check_id == "HAPR-GBL-004"
+        assert finding.status == Status.PASS
+
+    def test_fail_maxconn_missing(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = check_global_maxconn(config)
+        assert finding.check_id == "HAPR-GBL-004"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-GBL-007: nbproc not used - additional paths
+# ---------------------------------------------------------------------------
+
+class TestNbprocWithNbthread:
+    """Test nbproc+nbthread combination for HAPR-GBL-007."""
+
+    def test_fail_nbproc_with_nbthread(self):
+        config = parse_string("""
+global
+    nbproc 4
+    nbthread 2
+""")
+        finding = check_nbproc_not_used(config)
+        assert finding.check_id == "HAPR-GBL-007"
+        assert finding.status == Status.FAIL
+        assert "nbproc" in finding.evidence
+        assert "nbthread" in finding.evidence
+
+
+# ---------------------------------------------------------------------------
+# HAPR-LUA-001/002: Lua checks - lua-load-per-thread variant
+# ---------------------------------------------------------------------------
+
+class TestLuaLoadPerThread:
+    """Test Lua checks trigger on lua-load-per-thread."""
+
+    def test_lua_memory_limit_fail_per_thread(self):
+        config = parse_string("""
+global
+    lua-load-per-thread /etc/haproxy/scripts/auth.lua
+""")
+        finding = check_lua_memory_limit(config)
+        assert finding.check_id == "HAPR-LUA-001"
+        assert finding.status == Status.FAIL
+
+    def test_lua_forced_yield_fail_per_thread(self):
+        config = parse_string("""
+global
+    lua-load-per-thread /etc/haproxy/scripts/auth.lua
+""")
+        finding = check_lua_forced_yield(config)
+        assert finding.check_id == "HAPR-LUA-002"
+        assert finding.status == Status.FAIL
+
+    def test_lua_memory_limit_pass_per_thread(self):
+        config = parse_string("""
+global
+    lua-load-per-thread /etc/haproxy/scripts/auth.lua
+    tune.lua.maxmem 128
+""")
+        finding = check_lua_memory_limit(config)
+        assert finding.check_id == "HAPR-LUA-001"
+        assert finding.status == Status.PASS
+
+
+# ===========================================================================
+# Timeouts Category Validation Tests
+# ===========================================================================
+
+from hapr.framework.checks.timeouts import (
+    check_client_timeout,
+    check_server_timeout,
+    check_connect_timeout,
+    check_http_request_timeout,
+    check_timeout_values_reasonable,
+    check_http_keepalive_timeout,
+)
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TMO-001: Client Timeout
+# ---------------------------------------------------------------------------
+
+class TestClientTimeout:
+    """Test check_client_timeout for HAPR-TMO-001."""
+
+    def test_pass_client_timeout_in_defaults(self):
+        config = parse_string("""
+defaults
+    timeout client 30s
+""")
+        finding = check_client_timeout(config)
+        assert finding.check_id == "HAPR-TMO-001"
+        assert finding.status == Status.PASS
+
+    def test_fail_client_timeout_missing(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = check_client_timeout(config)
+        assert finding.check_id == "HAPR-TMO-001"
+        assert finding.status == Status.FAIL
+
+    def test_pass_client_timeout_in_global(self):
+        config = parse_string("""
+global
+    timeout client 30s
+""")
+        finding = check_client_timeout(config)
+        assert finding.check_id == "HAPR-TMO-001"
+        assert finding.status == Status.PASS
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TMO-002: Server Timeout
+# ---------------------------------------------------------------------------
+
+class TestServerTimeout:
+    """Test check_server_timeout for HAPR-TMO-002."""
+
+    def test_pass_server_timeout_in_defaults(self):
+        config = parse_string("""
+defaults
+    timeout server 30s
+""")
+        finding = check_server_timeout(config)
+        assert finding.check_id == "HAPR-TMO-002"
+        assert finding.status == Status.PASS
+
+    def test_fail_server_timeout_missing(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = check_server_timeout(config)
+        assert finding.check_id == "HAPR-TMO-002"
+        assert finding.status == Status.FAIL
+
+    def test_pass_server_timeout_in_backend(self):
+        """Server timeout set in backend should now be found (bug fix)."""
+        config = parse_string("""
+backend bk_web
+    timeout server 30s
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_server_timeout(config)
+        assert finding.check_id == "HAPR-TMO-002"
+        assert finding.status == Status.PASS
+        assert "backend" in finding.evidence.lower()
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TMO-003: Connect Timeout
+# ---------------------------------------------------------------------------
+
+class TestConnectTimeout:
+    """Test check_connect_timeout for HAPR-TMO-003."""
+
+    def test_pass_connect_timeout_in_defaults(self):
+        config = parse_string("""
+defaults
+    timeout connect 5s
+""")
+        finding = check_connect_timeout(config)
+        assert finding.check_id == "HAPR-TMO-003"
+        assert finding.status == Status.PASS
+
+    def test_fail_connect_timeout_missing(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = check_connect_timeout(config)
+        assert finding.check_id == "HAPR-TMO-003"
+        assert finding.status == Status.FAIL
+
+    def test_pass_connect_timeout_in_backend(self):
+        """Connect timeout set in backend should now be found (bug fix)."""
+        config = parse_string("""
+backend bk_web
+    timeout connect 5s
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_connect_timeout(config)
+        assert finding.check_id == "HAPR-TMO-003"
+        assert finding.status == Status.PASS
+        assert "backend" in finding.evidence.lower()
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TMO-004: HTTP Request Timeout
+# ---------------------------------------------------------------------------
+
+class TestHttpRequestTimeout:
+    """Test check_http_request_timeout for HAPR-TMO-004."""
+
+    def test_pass_http_request_timeout_in_defaults(self):
+        config = parse_string("""
+defaults
+    timeout http-request 10s
+""")
+        finding = check_http_request_timeout(config)
+        assert finding.check_id == "HAPR-TMO-004"
+        assert finding.status == Status.PASS
+
+    def test_fail_http_request_timeout_missing(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = check_http_request_timeout(config)
+        assert finding.check_id == "HAPR-TMO-004"
+        assert finding.status == Status.FAIL
+
+    def test_pass_http_request_timeout_in_frontend(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    timeout http-request 10s
+    default_backend bk_web
+""")
+        finding = check_http_request_timeout(config)
+        assert finding.check_id == "HAPR-TMO-004"
+        assert finding.status == Status.PASS
+
+    def test_pass_http_request_timeout_in_listen(self):
+        config = parse_string("""
+listen app
+    bind *:80
+    timeout http-request 10s
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_http_request_timeout(config)
+        assert finding.check_id == "HAPR-TMO-004"
+        assert finding.status == Status.PASS
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TMO-005: Timeout Values Reasonable
+# ---------------------------------------------------------------------------
+
+class TestTimeoutValuesReasonable:
+    """Test check_timeout_values_reasonable for HAPR-TMO-005."""
+
+    def test_pass_all_reasonable(self):
+        config = parse_string("""
+defaults
+    timeout client 30s
+    timeout server 30s
+    timeout connect 5s
+    timeout http-request 10s
+""")
+        finding = check_timeout_values_reasonable(config)
+        assert finding.check_id == "HAPR-TMO-005"
+        assert finding.status == Status.PASS
+
+    def test_fail_extreme_value(self):
+        config = parse_string("""
+defaults
+    timeout client 1h
+    timeout server 30s
+    timeout connect 5s
+    timeout http-request 10s
+""")
+        finding = check_timeout_values_reasonable(config)
+        assert finding.check_id == "HAPR-TMO-005"
+        assert finding.status == Status.FAIL
+
+    def test_partial_too_long(self):
+        config = parse_string("""
+defaults
+    timeout client 8m
+    timeout server 30s
+    timeout connect 5s
+    timeout http-request 10s
+""")
+        finding = check_timeout_values_reasonable(config)
+        assert finding.check_id == "HAPR-TMO-005"
+        assert finding.status == Status.PARTIAL
+
+    def test_fail_all_missing(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = check_timeout_values_reasonable(config)
+        assert finding.check_id == "HAPR-TMO-005"
+        assert finding.status == Status.FAIL
+
+    def test_partial_some_missing(self):
+        config = parse_string("""
+defaults
+    timeout client 30s
+    timeout server 30s
+""")
+        finding = check_timeout_values_reasonable(config)
+        assert finding.check_id == "HAPR-TMO-005"
+        assert finding.status == Status.PARTIAL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TMO-006: HTTP Keep-Alive Timeout - Extended
+# ---------------------------------------------------------------------------
+
+class TestHTTPKeepaliveTimeoutExtended:
+    """Extended tests for check_http_keepalive_timeout (HAPR-TMO-006)."""
+
+    def test_pass_keepalive_in_frontend(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    timeout http-keep-alive 5s
+    default_backend bk_web
+""")
+        finding = check_http_keepalive_timeout(config)
+        assert finding.check_id == "HAPR-TMO-006"
+        assert finding.status == Status.PASS
+
+    def test_pass_keepalive_in_listen(self):
+        config = parse_string("""
+listen app
+    bind *:80
+    timeout http-keep-alive 5s
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_http_keepalive_timeout(config)
+        assert finding.check_id == "HAPR-TMO-006"
+        assert finding.status == Status.PASS

@@ -73,7 +73,7 @@ def _find_timeout(config: HAProxyConfig, timeout_name: str, *, include_frontends
     timeout_name:
         The timeout keyword to look for, e.g. ``"client"``, ``"server"``.
     include_frontends:
-        When True, also search frontends and listen sections.
+        When True, also search frontends, backends, and listen sections.
 
     Returns
     -------
@@ -96,6 +96,14 @@ def _find_timeout(config: HAProxyConfig, timeout_name: str, *, include_frontends
                 parts = d.args.strip().split(None, 1)
                 raw_val = parts[1] if len(parts) > 1 else ""
                 results.append(("defaults", ds.name or "(unnamed)", raw_val))
+
+    # Always search backends -- timeout server/connect are commonly set per-backend
+    for be in config.backends:
+        for d in be.directives:
+            if d.keyword.lower() == "timeout" and d.args.lower().split()[0] == timeout_name:
+                parts = d.args.strip().split(None, 1)
+                raw_val = parts[1] if len(parts) > 1 else ""
+                results.append(("backend", be.name, raw_val))
 
     if include_frontends:
         for fe in config.frontends:
