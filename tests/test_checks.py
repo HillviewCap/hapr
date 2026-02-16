@@ -101,6 +101,8 @@ backend bk_mysql
         http_check_ids = {
             "HAPR-HDR-001", "HAPR-HDR-002", "HAPR-HDR-003",
             "HAPR-HDR-004", "HAPR-HDR-005", "HAPR-HDR-006",
+            "HAPR-HDR-009",
+            "HAPR-TLS-006",
             "HAPR-REQ-001", "HAPR-REQ-002", "HAPR-REQ-003", "HAPR-REQ-004",
             "HAPR-ACL-002",
             "HAPR-FRT-003", "HAPR-FRT-004", "HAPR-FRT-005", "HAPR-FRT-006",
@@ -2519,3 +2521,337 @@ frontend ft_web
         finding = check_api_rate_limiting(config)
         assert finding.check_id == "HAPR-API-002"
         assert finding.status == Status.NOT_APPLICABLE
+
+
+# ===========================================================================
+# TLS Category Validation Tests
+# ===========================================================================
+
+from hapr.framework.checks.tls import (
+    check_min_tls_version,
+    check_ssl_default_bind_options,
+    check_ssl_default_bind_ciphers,
+    check_ssl_default_bind_ciphersuites,
+    check_dh_param_size,
+)
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-001: Minimum TLS Version
+# ---------------------------------------------------------------------------
+
+class TestMinTLSVersion:
+    """Test check_min_tls_version for HAPR-TLS-001."""
+
+    def test_pass_global_ssl_min_ver_tls12(self):
+        config = parse_string("""
+global
+    ssl-default-bind-options ssl-min-ver TLSv1.2
+""")
+        finding = check_min_tls_version(config)
+        assert finding.check_id == "HAPR-TLS-001"
+        assert finding.status == Status.PASS
+
+    def test_pass_global_ssl_min_ver_tls13(self):
+        config = parse_string("""
+global
+    ssl-default-bind-options ssl-min-ver TLSv1.3
+""")
+        finding = check_min_tls_version(config)
+        assert finding.check_id == "HAPR-TLS-001"
+        assert finding.status == Status.PASS
+
+    def test_pass_all_binds_have_ssl_min_ver(self):
+        config = parse_string("""
+frontend ft1
+    bind *:443 ssl crt /cert.pem ssl-min-ver TLSv1.2
+
+frontend ft2
+    bind *:8443 ssl crt /cert.pem ssl-min-ver TLSv1.2
+""")
+        finding = check_min_tls_version(config)
+        assert finding.check_id == "HAPR-TLS-001"
+        assert finding.status == Status.PASS
+
+    def test_partial_some_binds_have_ssl_min_ver(self):
+        config = parse_string("""
+frontend ft1
+    bind *:443 ssl crt /cert.pem ssl-min-ver TLSv1.2
+
+frontend ft2
+    bind *:8443 ssl crt /cert.pem
+""")
+        finding = check_min_tls_version(config)
+        assert finding.check_id == "HAPR-TLS-001"
+        assert finding.status == Status.PARTIAL
+
+    def test_fail_weak_version_in_global(self):
+        config = parse_string("""
+global
+    ssl-default-bind-options sslv3
+""")
+        finding = check_min_tls_version(config)
+        assert finding.check_id == "HAPR-TLS-001"
+        assert finding.status == Status.FAIL
+
+    def test_fail_no_enforcement(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = check_min_tls_version(config)
+        assert finding.check_id == "HAPR-TLS-001"
+        assert finding.status == Status.FAIL
+
+    def test_fail_weak_ssl_min_ver_global(self):
+        config = parse_string("""
+global
+    ssl-default-bind-options ssl-min-ver TLSv1.0
+""")
+        finding = check_min_tls_version(config)
+        assert finding.check_id == "HAPR-TLS-001"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-003: SSL Default Bind Options Set
+# ---------------------------------------------------------------------------
+
+class TestSSLDefaultBindOptions:
+    """Test check_ssl_default_bind_options for HAPR-TLS-003."""
+
+    def test_pass_present(self):
+        config = parse_string("""
+global
+    ssl-default-bind-options no-sslv3 no-tlsv10 no-tlsv11
+""")
+        finding = check_ssl_default_bind_options(config)
+        assert finding.check_id == "HAPR-TLS-003"
+        assert finding.status == Status.PASS
+
+    def test_fail_missing(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = check_ssl_default_bind_options(config)
+        assert finding.check_id == "HAPR-TLS-003"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-004: SSL Default Bind Ciphers Set
+# ---------------------------------------------------------------------------
+
+class TestSSLDefaultBindCiphers:
+    """Test check_ssl_default_bind_ciphers for HAPR-TLS-004."""
+
+    def test_pass_present(self):
+        config = parse_string("""
+global
+    ssl-default-bind-ciphers ECDHE+AESGCM:DHE+AESGCM:!aNULL:!MD5
+""")
+        finding = check_ssl_default_bind_ciphers(config)
+        assert finding.check_id == "HAPR-TLS-004"
+        assert finding.status == Status.PASS
+
+    def test_fail_missing(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = check_ssl_default_bind_ciphers(config)
+        assert finding.check_id == "HAPR-TLS-004"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-005: TLS 1.3 Ciphersuites Configured
+# ---------------------------------------------------------------------------
+
+class TestTLS13Ciphersuites:
+    """Test check_ssl_default_bind_ciphersuites for HAPR-TLS-005."""
+
+    def test_pass_ciphersuites_present(self):
+        config = parse_string("""
+global
+    ssl-default-bind-ciphersuites TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256
+""")
+        finding = check_ssl_default_bind_ciphersuites(config)
+        assert finding.check_id == "HAPR-TLS-005"
+        assert finding.status == Status.PASS
+
+    def test_partial_only_tls12_ciphers(self):
+        config = parse_string("""
+global
+    ssl-default-bind-ciphers ECDHE+AESGCM:DHE+AESGCM
+""")
+        finding = check_ssl_default_bind_ciphersuites(config)
+        assert finding.check_id == "HAPR-TLS-005"
+        assert finding.status == Status.PARTIAL
+
+    def test_fail_no_cipher_config(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = check_ssl_default_bind_ciphersuites(config)
+        assert finding.check_id == "HAPR-TLS-005"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-007: DH Parameter Size
+# ---------------------------------------------------------------------------
+
+class TestDHParamSize:
+    """Test check_dh_param_size for HAPR-TLS-007."""
+
+    def test_pass_dh_param_2048(self):
+        config = parse_string("""
+global
+    tune.ssl.default-dh-param 2048
+""")
+        finding = check_dh_param_size(config)
+        assert finding.check_id == "HAPR-TLS-007"
+        assert finding.status == Status.PASS
+
+    def test_pass_dh_param_4096(self):
+        config = parse_string("""
+global
+    tune.ssl.default-dh-param 4096
+""")
+        finding = check_dh_param_size(config)
+        assert finding.check_id == "HAPR-TLS-007"
+        assert finding.status == Status.PASS
+
+    def test_partial_dh_param_1024(self):
+        config = parse_string("""
+global
+    tune.ssl.default-dh-param 1024
+""")
+        finding = check_dh_param_size(config)
+        assert finding.check_id == "HAPR-TLS-007"
+        assert finding.status == Status.PARTIAL
+
+    def test_fail_dh_param_missing(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = check_dh_param_size(config)
+        assert finding.check_id == "HAPR-TLS-007"
+        assert finding.status == Status.FAIL
+
+    def test_fail_dh_param_non_integer(self):
+        config = parse_string("""
+global
+    tune.ssl.default-dh-param auto
+""")
+        finding = check_dh_param_size(config)
+        assert finding.check_id == "HAPR-TLS-007"
+        assert finding.status == Status.FAIL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-008: TLS Session Tickets — additional PARTIAL paths
+# ---------------------------------------------------------------------------
+
+class TestTLSSessionTicketsPartial:
+    """Additional PARTIAL path tests for check_tls_session_tickets_disabled."""
+
+    def test_partial_all_binds_no_tls_tickets(self):
+        config = parse_string("""
+global
+    ssl-default-bind-options no-sslv3
+
+frontend ft1
+    bind *:443 ssl crt /cert.pem no-tls-tickets
+
+frontend ft2
+    bind *:8443 ssl crt /cert.pem no-tls-tickets
+""")
+        finding = tls.check_tls_session_tickets_disabled(config)
+        assert finding.check_id == "HAPR-TLS-008"
+        assert finding.status == Status.PARTIAL
+
+    def test_partial_some_binds_no_tls_tickets(self):
+        config = parse_string("""
+global
+    ssl-default-bind-options no-sslv3
+
+frontend ft1
+    bind *:443 ssl crt /cert.pem no-tls-tickets
+
+frontend ft2
+    bind *:8443 ssl crt /cert.pem
+""")
+        finding = tls.check_tls_session_tickets_disabled(config)
+        assert finding.check_id == "HAPR-TLS-008"
+        assert finding.status == Status.PARTIAL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-MTLS-001: mTLS Client Verification — additional paths
+# ---------------------------------------------------------------------------
+
+class TestMTLSClientVerificationAdditional:
+    """Additional path tests for check_mtls_client_verification."""
+
+    def test_fail_ssl_binds_no_verify(self):
+        config = parse_string("""
+frontend ft_ssl
+    bind *:443 ssl crt /cert.pem
+""")
+        finding = check_mtls_client_verification(config)
+        assert finding.check_id == "HAPR-MTLS-001"
+        assert finding.status == Status.FAIL
+
+    def test_partial_verify_required_without_ca_file(self):
+        config = parse_string("""
+frontend ft_mtls
+    bind *:443 ssl crt /cert.pem verify required
+""")
+        finding = check_mtls_client_verification(config)
+        assert finding.check_id == "HAPR-MTLS-001"
+        assert finding.status == Status.PARTIAL
+
+
+# ---------------------------------------------------------------------------
+# HAPR-TLS-006: HSTS edge cases (backend, add-header)
+# ---------------------------------------------------------------------------
+
+class TestHSTSEdgeCases:
+    """Test HSTS detection in backend sections and via add-header."""
+
+    def test_hsts_in_backend_section_passes(self):
+        config = parse_string("""
+backend bk_web
+    mode http
+    http-response set-header Strict-Transport-Security max-age=31536000
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_hsts_configured(config)
+        assert finding.check_id == "HAPR-TLS-006"
+        assert finding.status == Status.PASS
+
+    def test_hsts_via_add_header_passes(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response add-header Strict-Transport-Security max-age=31536000
+""")
+        finding = check_hsts_configured(config)
+        assert finding.check_id == "HAPR-TLS-006"
+        assert finding.status == Status.PASS
+
+    def test_hsts_via_add_header_in_backend_passes(self):
+        config = parse_string("""
+backend bk_web
+    mode http
+    http-response add-header Strict-Transport-Security max-age=31536000
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_hsts_configured(config)
+        assert finding.check_id == "HAPR-TLS-006"
+        assert finding.status == Status.PASS

@@ -131,6 +131,7 @@
   title: HSTS Header Configured
   category: tls
   tier: level1
+  requires_mode: http
   severity: high
   weight: 7
   description: >
