@@ -168,6 +168,7 @@
   tier: level1
   severity: high
   weight: 7
+  requires_mode: http
   description: >
     Verify that source IP restrictions are configured on administrative interfaces,
     stats pages, and management endpoints to limit access to trusted networks.
@@ -195,6 +196,7 @@
   tier: level3
   severity: high
   weight: 7
+  requires_mode: http
   description: >
     Verify that JWT (JSON Web Token) signature verification is enforced at the proxy
     level for API gateway configurations.
@@ -222,6 +224,7 @@
   tier: level3
   severity: critical
   weight: 10
+  requires_mode: http
   description: >
     Verify that JWT configurations restrict allowed signing algorithms and prevent
     the alg:none attack vector.
@@ -248,6 +251,7 @@
   tier: level3
   severity: medium
   weight: 4
+  requires_mode: http
   description: >
     Verify that bot detection patterns are configured to filter automated traffic
     based on User-Agent and behavioral patterns.
@@ -299,6 +303,7 @@
   tier: level3
   severity: high
   weight: 7
+  requires_mode: http
   description: >
     Verify that API endpoints enforce authentication by requiring valid credentials
     before processing requests.
@@ -327,6 +332,7 @@
   tier: level3
   severity: medium
   weight: 4
+  requires_mode: http
   description: >
     Verify that API endpoints have dedicated rate limiting to prevent abuse and ensure
     fair resource allocation.

@@ -115,11 +115,16 @@ def check_admin_path_restricted(config: HAProxyConfig) -> Finding:
 
     evidence_lines: list[str] = []
 
-    for section in config.all_frontends_and_listens:
+    all_sections = (
+        list(config.all_frontends_and_listens)
+        + list(config.backends)
+    )
+
+    for section in all_sections:
         section_label = section.name or "(unnamed)"
 
         # Check ACL args for admin path references
-        for acl in section.acls:
+        for acl in section.get("acl"):
             if combined_re.search(acl.args):
                 evidence_lines.append(
                     f"[{section_label}] acl {acl.args} (line {acl.line_number})"
@@ -149,7 +154,7 @@ def check_admin_path_restricted(config: HAProxyConfig) -> Finding:
             "Paths like /admin, /manager, /wp-admin, and /phpmyadmin "
             "should be restricted or denied."
         ),
-        evidence="Searched all frontend and listen sections for admin path ACLs or deny rules.",
+        evidence="Searched all frontend, listen, and backend sections for admin path ACLs or deny rules.",
     )
 
 
@@ -479,14 +484,19 @@ def check_source_ip_restrictions(config: HAProxyConfig) -> Finding:
     """
     evidence_lines: list[str] = []
 
-    for section in config.all_frontends_and_listens:
+    all_sections = (
+        list(config.all_frontends_and_listens)
+        + list(config.backends)
+    )
+
+    for section in all_sections:
         section_label = section.name or "(unnamed)"
 
         # Collect names of src-based ACLs for cross-referencing
         src_acl_names: list[str] = []
 
         # 1. Check ACLs for 'src' usage
-        for acl in section.acls:
+        for acl in section.get("acl"):
             # ACL args format: "<name> <criterion> <values>"
             # e.g. "trusted_src src 10.0.0.0/8"
             acl_tokens = acl.args.split()
@@ -537,7 +547,7 @@ def check_source_ip_restrictions(config: HAProxyConfig) -> Finding:
             "to restrict access to stats pages and management endpoints to "
             "trusted IP ranges."
         ),
-        evidence="Searched all frontend and listen sections for src-based ACLs and deny/allow rules; none found.",
+        evidence="Searched all frontend, listen, and backend sections for src-based ACLs and deny/allow rules; none found.",
     )
 
 

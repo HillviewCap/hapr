@@ -104,7 +104,10 @@ backend bk_mysql
             "HAPR-HDR-009",
             "HAPR-TLS-006",
             "HAPR-REQ-001", "HAPR-REQ-002", "HAPR-REQ-003", "HAPR-REQ-004",
-            "HAPR-ACL-002",
+            "HAPR-ACL-002", "HAPR-ACL-007",
+            "HAPR-JWT-001", "HAPR-JWT-002",
+            "HAPR-BOT-001",
+            "HAPR-API-001", "HAPR-API-002",
             "HAPR-FRT-003", "HAPR-FRT-004", "HAPR-FRT-005", "HAPR-FRT-006",
             "HAPR-INF-001", "HAPR-INF-003",
         }
