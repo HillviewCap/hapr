@@ -338,3 +338,137 @@ userlist myusers
         assert any(
             hasattr(s, "users") for s in config.all_sections
         )
+
+
+
+
+# ===========================================================================
+# Issue #24: Parser — unrecognized sections (program, peers, resolvers) bleed
+# ===========================================================================
+
+class TestUnmodeledSectionBoundary:
+    """Parser should treat program/peers/resolvers as section boundaries."""
+
+    def test_peers_section_does_not_bleed_into_backend(self):
+        config = parse_string("""
+backend bk_web
+    server web1 10.0.0.1:80 check
+
+peers mypeers
+    peer haproxy1 10.0.0.1:10000
+    peer haproxy2 10.0.0.2:10000
+
+frontend ft_web
+    bind :80
+""")
+        # The peers directives should NOT appear in bk_web or ft_web
+        be = config.backends[0]
+        assert be.name == "bk_web"
+        # Only the server line should be present, not peer directives
+        assert len(be.servers) == 1
+        assert len(config.frontends) == 1
+
+    def test_resolvers_section_does_not_bleed(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+
+resolvers mydns
+    nameserver dns1 10.0.0.1:53
+    resolve_retries 3
+
+defaults
+    mode http
+""")
+        # Resolvers directives should not end up in global
+        g = config.global_section
+        assert not g.has("nameserver")
+        assert not g.has("resolve_retries")
+        assert len(config.defaults) == 1
+
+    def test_program_section_does_not_bleed(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+
+program haproxy-api
+    command /usr/bin/haproxy-api
+    option start-on-reload
+
+frontend ft_web
+    bind :80
+""")
+        g = config.global_section
+        assert not g.has("command")
+        assert len(config.frontends) == 1
+
+
+
+
+# ===========================================================================
+# Issue #25: Parser — default-server inheritance
+# ===========================================================================
+
+class TestDefaultServerInheritance:
+    """Parser should merge default-server options into server lines."""
+
+    def test_check_option_inherited(self):
+        config = parse_string("""
+backend bk_app
+    default-server ssl check maxconn 500
+    server app1 10.0.0.1:443
+    server app2 10.0.0.2:443
+""")
+        be = config.backends[0]
+        assert len(be.servers) == 2
+        for s in be.servers:
+            assert "check" in s.options
+            assert "maxconn" in s.options
+            assert s.options["maxconn"] == "500"
+            assert s.ssl is True
+
+    def test_explicit_override_not_clobbered(self):
+        config = parse_string("""
+backend bk_app
+    default-server maxconn 500 check
+    server app1 10.0.0.1:443 maxconn 1000
+""")
+        s = config.backends[0].servers[0]
+        assert s.options["maxconn"] == "1000"  # explicit overrides default
+
+    def test_no_default_server_no_change(self):
+        config = parse_string("""
+backend bk_app
+    server app1 10.0.0.1:443 check
+""")
+        s = config.backends[0].servers[0]
+        assert "check" in s.options
+        assert s.ssl is False
+
+
+
+
+# ===========================================================================
+# Issue #26: Parser — env var ports
+# ===========================================================================
+
+class TestEnvVarBindParsing:
+    """Parser should preserve address even when port contains env vars."""
+
+    def test_env_var_port_preserves_address(self):
+        config = parse_string("""
+frontend ft_http
+    bind *:${HTTP_PORT}
+""")
+        b = config.frontends[0].binds[0]
+        assert b.address == "0.0.0.0"
+        assert b.port is None  # can't parse env var as int
+
+    def test_env_var_port_with_explicit_address(self):
+        config = parse_string("""
+frontend ft_http
+    bind 0.0.0.0:${STATS_PORT}
+""")
+        b = config.frontends[0].binds[0]
+        assert b.address == "0.0.0.0"
+
