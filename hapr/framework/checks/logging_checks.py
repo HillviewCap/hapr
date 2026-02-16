@@ -86,6 +86,18 @@ def check_log_format(config: HAProxyConfig) -> Finding:
                     f"option httplog in frontend '{section.name}'"
                 )
 
+    # Check backends
+    for section in config.backends:
+        for directive in section.get("log-format"):
+            custom_format_parts.append(
+                f"Custom log-format in backend '{section.name}': {directive.args}"
+            )
+        for directive in section.get("option"):
+            if "httplog" in directive.args.lower():
+                httplog_parts.append(
+                    f"option httplog in backend '{section.name}'"
+                )
+
     # Check listen sections
     for section in config.listens:
         for directive in section.get("log-format"):
@@ -390,6 +402,19 @@ def check_httplog_or_tcplog(config: HAProxyConfig) -> Finding:
                     f"option tcplog in frontend '{section.name}'"
                 )
 
+    # Check backends
+    for section in config.backends:
+        for directive in section.get("option"):
+            args_lower = directive.args.lower()
+            if "httplog" in args_lower:
+                evidence_parts.append(
+                    f"option httplog in backend '{section.name}'"
+                )
+            elif "tcplog" in args_lower:
+                evidence_parts.append(
+                    f"option tcplog in backend '{section.name}'"
+                )
+
     # Check listen sections
     for section in config.listens:
         for directive in section.get("option"):
@@ -455,6 +480,14 @@ def check_dontlognull(config: HAProxyConfig) -> Finding:
             if "dontlognull" in directive.args.lower():
                 evidence_parts.append(
                     f"option dontlognull in frontend '{section.name}'"
+                )
+
+    # Check backends
+    for section in config.backends:
+        for directive in section.get("option"):
+            if "dontlognull" in directive.args.lower():
+                evidence_parts.append(
+                    f"option dontlognull in backend '{section.name}'"
                 )
 
     # Check listen sections
