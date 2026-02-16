@@ -307,6 +307,7 @@ def check_http_smuggling_prevention(config: HAProxyConfig) -> Finding:
 
     all_sections = (
         list(config.all_frontends_and_listens)
+        + list(config.backends)
         + list(config.defaults)
     )
 
