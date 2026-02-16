@@ -44,39 +44,55 @@ def check_chroot(config: HAProxyConfig) -> Finding:
 # ---------------------------------------------------------------------------
 
 def check_non_root_user(config: HAProxyConfig) -> Finding:
-    """Check that the global section specifies a non-root ``user``.
+    """Check that the global section specifies a non-root ``user`` or ``uid``.
 
     HAProxy should drop privileges after binding to privileged ports.
     Running as *root* unnecessarily expands the blast radius of any
-    vulnerability.
+    vulnerability.  Both ``user <name>`` and ``uid <number>`` are accepted.
 
-    Returns PASS if a non-root user is set, FAIL if missing or set to
-    ``root``.
+    Returns PASS if a non-root user/uid is set, FAIL if missing or set to
+    ``root`` / uid 0.
     """
-    value = config.global_section.get_value("user")
+    user_value = config.global_section.get_value("user")
+    uid_value = config.global_section.get_value("uid")
 
-    if value is None:
+    if user_value is not None:
+        username = user_value.strip()
+        if username.lower() == "root":
+            return Finding(
+                check_id="HAPR-PROC-002",
+                status=Status.FAIL,
+                message="HAProxy is configured to run as root.",
+                evidence=f"user {username}",
+            )
         return Finding(
             check_id="HAPR-PROC-002",
-            status=Status.FAIL,
-            message="No 'user' directive found in the global section.",
-            evidence="not found",
+            status=Status.PASS,
+            message=f"HAProxy is configured to run as non-root user '{username}'.",
+            evidence=f"user {username}",
         )
 
-    username = value.strip()
-    if username.lower() == "root":
+    if uid_value is not None:
+        uid_str = uid_value.strip()
+        if uid_str == "0":
+            return Finding(
+                check_id="HAPR-PROC-002",
+                status=Status.FAIL,
+                message="HAProxy is configured to run as uid 0 (root).",
+                evidence=f"uid {uid_str}",
+            )
         return Finding(
             check_id="HAPR-PROC-002",
-            status=Status.FAIL,
-            message="HAProxy is configured to run as root.",
-            evidence=f"user {username}",
+            status=Status.PASS,
+            message=f"HAProxy is configured to run as non-root uid {uid_str}.",
+            evidence=f"uid {uid_str}",
         )
 
     return Finding(
         check_id="HAPR-PROC-002",
-        status=Status.PASS,
-        message=f"HAProxy is configured to run as non-root user '{username}'.",
-        evidence=f"user {username}",
+        status=Status.FAIL,
+        message="No 'user' or 'uid' directive found in the global section.",
+        evidence="not found",
     )
 
 
@@ -85,17 +101,19 @@ def check_non_root_user(config: HAProxyConfig) -> Finding:
 # ---------------------------------------------------------------------------
 
 def check_user_group(config: HAProxyConfig) -> Finding:
-    """Check that the global section specifies a ``group`` directive.
+    """Check that the global section specifies a ``group`` or ``gid`` directive.
 
     Setting an explicit group ensures the process runs with a restricted
-    group, complementing the ``user`` directive.
+    group, complementing the ``user`` directive.  Both ``group <name>``
+    and ``gid <number>`` are accepted.
 
     Returns PASS if present, FAIL if missing.
     """
-    value = config.global_section.get_value("group")
+    group_value = config.global_section.get_value("group")
+    gid_value = config.global_section.get_value("gid")
 
-    if value is not None:
-        group_name = value.strip()
+    if group_value is not None:
+        group_name = group_value.strip()
         return Finding(
             check_id="HAPR-PROC-003",
             status=Status.PASS,
@@ -103,10 +121,19 @@ def check_user_group(config: HAProxyConfig) -> Finding:
             evidence=f"group {group_name}",
         )
 
+    if gid_value is not None:
+        gid_str = gid_value.strip()
+        return Finding(
+            check_id="HAPR-PROC-003",
+            status=Status.PASS,
+            message=f"gid directive is configured: {gid_str}",
+            evidence=f"gid {gid_str}",
+        )
+
     return Finding(
         check_id="HAPR-PROC-003",
         status=Status.FAIL,
-        message="group directive is missing from the global section.",
+        message="No 'group' or 'gid' directive found in the global section.",
         evidence="not found",
     )
 
@@ -147,13 +174,14 @@ def check_ulimits(config: HAProxyConfig) -> Finding:
 # ---------------------------------------------------------------------------
 
 def check_daemon_mode(config: HAProxyConfig) -> Finding:
-    """Check that the ``daemon`` directive exists in the global section.
+    """Check that ``daemon`` or ``master-worker`` exists in the global section.
 
     Running HAProxy in the foreground is useful for debugging but not
     recommended for production deployments.  The ``daemon`` directive
-    ensures the process forks into the background.
+    ensures the process forks into the background.  ``master-worker``
+    mode (HAProxy 1.9+) is the modern recommended alternative.
 
-    Returns PASS if present, FAIL if missing.
+    Returns PASS if either is present, FAIL if missing.
     """
     if config.global_section.has("daemon"):
         return Finding(
@@ -163,12 +191,20 @@ def check_daemon_mode(config: HAProxyConfig) -> Finding:
             evidence="daemon",
         )
 
+    if config.global_section.has("master-worker"):
+        return Finding(
+            check_id="HAPR-PROC-005",
+            status=Status.PASS,
+            message="HAProxy is configured in master-worker mode.",
+            evidence="master-worker",
+        )
+
     return Finding(
         check_id="HAPR-PROC-005",
         status=Status.FAIL,
         message=(
-            "No 'daemon' directive found in global section. Running in "
-            "foreground mode is not recommended for production."
+            "No 'daemon' or 'master-worker' directive found in global section. "
+            "Running in foreground mode is not recommended for production."
         ),
         evidence="not found",
     )

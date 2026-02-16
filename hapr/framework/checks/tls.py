@@ -70,6 +70,7 @@ def check_min_tls_version(config: HAProxyConfig) -> Finding:
     bind_opts_directives = g.get("ssl-default-bind-options")
     for d in bind_opts_directives:
         tokens = d.args.lower().split()
+        token_set = set(tokens)
         # Look for explicit weak version tokens
         for tok in tokens:
             if tok in _WEAK_VERSIONS or tok.lstrip("no-") in _WEAK_VERSIONS:
@@ -89,11 +90,21 @@ def check_min_tls_version(config: HAProxyConfig) -> Finding:
                         f"global ssl-default-bind-options ssl-min-ver {ver}"
                     )
 
+        # Recognise force-tlsv12 / force-tlsv13 as enforcing TLS 1.2+
+        if "force-tlsv12" in token_set or "force-tlsv13" in token_set:
+            strong_global = True
+
+        # Recognise the combination of no-sslv3 + no-tlsv10 + no-tlsv11
+        # as equivalent to ssl-min-ver TLSv1.2
+        if {"no-sslv3", "no-tlsv10", "no-tlsv11"}.issubset(token_set):
+            strong_global = True
+
     # --- Check individual bind lines ---
     for bind in config.all_binds:
         if not bind.ssl:
             continue
         opts_lower = {k.lower(): v.lower() for k, v in bind.options.items()}
+        opts_keys = set(opts_lower.keys())
 
         # Check ssl-min-ver on the bind line
         min_ver = opts_lower.get("ssl-min-ver", "")
@@ -106,6 +117,12 @@ def check_min_tls_version(config: HAProxyConfig) -> Finding:
         for key in opts_lower:
             if key in _WEAK_VERSIONS:
                 weak_found.append(f"bind {bind.raw}: {key}")
+        # Recognise force-tlsv12/force-tlsv13 on bind lines
+        if "force-tlsv12" in opts_keys or "force-tlsv13" in opts_keys:
+            strong_binds.append(bind.raw)
+        # Recognise no-sslv3 + no-tlsv10 + no-tlsv11 combination on bind lines
+        if {"no-sslv3", "no-tlsv10", "no-tlsv11"}.issubset(opts_keys):
+            strong_binds.append(bind.raw)
 
     # --- Determine result ---
     if weak_found:
@@ -162,13 +179,17 @@ def check_no_weak_ciphers(config: HAProxyConfig) -> Finding:
     cipher strings on individual bind lines for patterns known to be weak:
     DES, RC4, MD5, NULL, EXPORT, aNULL, eNULL, LOW.
 
-    Returns PASS if no weak ciphers are found, FAIL if any are present.
+    Returns PASS if explicit ciphers are configured and none are weak,
+    PARTIAL if no cipher configuration exists (OpenSSL defaults may include
+    weak ciphers), FAIL if any weak ciphers are present.
     """
     g = config.global_section
     weak_hits: list[str] = []
+    cipher_configured = False
 
     # Global default ciphers
     for d in g.get("ssl-default-bind-ciphers"):
+        cipher_configured = True
         matches = _find_weak_ciphers(d.args)
         if matches:
             weak_hits.append(
@@ -181,6 +202,7 @@ def check_no_weak_ciphers(config: HAProxyConfig) -> Finding:
             continue
         cipher_str = bind.options.get("ciphers", "") or bind.options.get("ssl-default-bind-ciphers", "")
         if cipher_str:
+            cipher_configured = True
             matches = _find_weak_ciphers(cipher_str)
             if matches:
                 weak_hits.append(
@@ -193,6 +215,18 @@ def check_no_weak_ciphers(config: HAProxyConfig) -> Finding:
             status=Status.FAIL,
             message="Weak cipher suites detected in TLS configuration.",
             evidence="; ".join(weak_hits),
+        )
+
+    if not cipher_configured:
+        return Finding(
+            check_id="HAPR-TLS-002",
+            status=Status.PARTIAL,
+            message=(
+                "No explicit cipher configuration found. OpenSSL defaults are "
+                "in use and may include weak ciphers depending on the library "
+                "version. Consider setting ssl-default-bind-ciphers explicitly."
+            ),
+            evidence="No ssl-default-bind-ciphers or bind-level ciphers configured",
         )
 
     return Finding(
@@ -418,11 +452,26 @@ def check_hsts_configured(config: HAProxyConfig) -> Finding:
 def check_dh_param_size(config: HAProxyConfig) -> Finding:
     """Check that ``tune.ssl.default-dh-param`` is set to >= 2048 in global.
 
+    Also recognises ``ssl-dh-param-file`` which specifies a custom DH
+    parameters file (typically generated at 2048+ bits).
+
     A small DH parameter size makes the server vulnerable to Logjam-style
     attacks.  The recommended minimum is 2048 bits.
 
-    Returns PASS if >= 2048, PARTIAL if set but < 2048, FAIL if not set.
+    Returns PASS if >= 2048 or ssl-dh-param-file is present, PARTIAL if
+    set but < 2048, FAIL if neither is set.
     """
+    # Check for ssl-dh-param-file first — file size can't be verified but
+    # its presence indicates intentional DH configuration.
+    dh_file = config.global_section.get_value("ssl-dh-param-file")
+    if dh_file is not None:
+        return Finding(
+            check_id="HAPR-TLS-007",
+            status=Status.PASS,
+            message=f"Custom DH parameter file is configured: {dh_file.strip()}",
+            evidence=f"ssl-dh-param-file {dh_file.strip()}",
+        )
+
     value = config.global_section.get_value("tune.ssl.default-dh-param")
 
     if value is None:

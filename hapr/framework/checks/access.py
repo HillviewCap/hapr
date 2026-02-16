@@ -899,13 +899,14 @@ def check_ip_reputation_integration(config: HAProxyConfig) -> Finding:
                         f"[{section_label}] {keyword} {directive.args} (line {directive.line_number})"
                     )
 
-            # Check for GPC-based reputation scoring in stick-table contexts
-            if "gpc" in args_lower and (
-                keyword in ("stick-table", "http-request", "tcp-request")
-            ):
-                evidence_lines.append(
-                    f"[{section_label}] {keyword} {directive.args} (line {directive.line_number})"
-                )
+            # Check for GPC-based reputation scoring — only count as IP
+            # reputation when combined with source-IP deny/reject rules,
+            # not generic GPC usage like circuit breakers.
+            if "gpc" in args_lower and keyword in ("http-request", "tcp-request"):
+                if ("deny" in args_lower or "reject" in args_lower or "tarpit" in args_lower) and "src" in args_lower:
+                    evidence_lines.append(
+                        f"[{section_label}] {keyword} {directive.args} (line {directive.line_number})"
+                    )
 
         # Check ACLs for external IP list references
         if hasattr(section, "acls"):
