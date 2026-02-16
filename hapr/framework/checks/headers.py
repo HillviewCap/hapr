@@ -1,7 +1,7 @@
 """HTTP security header checks for HAProxy configurations.
 
 Examines ``http-response set-header`` and ``http-response add-header``
-directives across frontends, listens, and defaults sections to verify
+directives across frontends, backends, listens, and defaults sections to verify
 that standard security headers are being injected.
 """
 
@@ -33,7 +33,7 @@ def _extract_header_value(directive: Directive, header_name: str) -> str:
 def _find_response_header(
     config: HAProxyConfig, header_name: str
 ) -> Directive | None:
-    """Search all frontends, listens, and defaults for a response header directive.
+    """Search all frontends, backends, listens, and defaults for a response header directive.
 
     Looks for ``http-response set-header`` or ``http-response add-header``
     directives whose first argument matches *header_name* (case-insensitive).
@@ -58,6 +58,7 @@ def _find_response_header(
 
     sections = (
         list(config.frontends)
+        + list(config.backends)
         + list(config.listens)
         + list(config.defaults)
     )
