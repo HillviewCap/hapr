@@ -7,12 +7,26 @@ import pytest
 from datetime import datetime, timedelta
 from hapr.parser import parse_string
 from hapr.models import Status
-from hapr.framework.checks.tls import _find_weak_ciphers, check_no_weak_ciphers
+from hapr.framework.checks.tls import (
+    _find_weak_ciphers, check_no_weak_ciphers, check_min_tls_version,
+    check_dh_param_size,
+)
 from hapr.framework.checks.global_defaults import check_stats_socket_permissions
-from hapr.framework.checks.access import check_stats_access_restricted
+from hapr.framework.checks.access import (
+    check_stats_access_restricted, check_ip_reputation_integration,
+)
 from hapr.framework.checks.backend import check_backend_ssl
 from hapr.framework.checks.frontend import check_http_to_https_redirect
-from hapr.framework.checks.logging_checks import check_log_format
+from hapr.framework.checks.logging_checks import (
+    check_log_format, check_remote_syslog, check_httplog_or_tcplog,
+)
+from hapr.framework.checks.process import (
+    check_non_root_user, check_user_group, check_daemon_mode,
+)
+from hapr.framework.checks.disclosure import (
+    check_server_header_removed, check_version_hidden,
+)
+from hapr.framework.checks.headers import check_x_frame_options, check_x_content_type_options
 from hapr.framework.checks import request, logging_checks, access
 from hapr.framework.engine import run_audit, _config_has_http_mode
 
@@ -5426,3 +5440,485 @@ class TestRequestSmugglingCVE:
         finding = check_request_smuggling_cve(self._make_config(), cve_result)
         assert finding.check_id == "HAPR-CVE-003"
         assert finding.status == Status.ERROR
+
+
+# ===========================================================================
+# Issue #24: Parser — unrecognized sections (program, peers, resolvers) bleed
+# ===========================================================================
+
+class TestUnmodeledSectionBoundary:
+    """Parser should treat program/peers/resolvers as section boundaries."""
+
+    def test_peers_section_does_not_bleed_into_backend(self):
+        config = parse_string("""
+backend bk_web
+    server web1 10.0.0.1:80 check
+
+peers mypeers
+    peer haproxy1 10.0.0.1:10000
+    peer haproxy2 10.0.0.2:10000
+
+frontend ft_web
+    bind :80
+""")
+        # The peers directives should NOT appear in bk_web or ft_web
+        be = config.backends[0]
+        assert be.name == "bk_web"
+        # Only the server line should be present, not peer directives
+        assert len(be.servers) == 1
+        assert len(config.frontends) == 1
+
+    def test_resolvers_section_does_not_bleed(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+
+resolvers mydns
+    nameserver dns1 10.0.0.1:53
+    resolve_retries 3
+
+defaults
+    mode http
+""")
+        # Resolvers directives should not end up in global
+        g = config.global_section
+        assert not g.has("nameserver")
+        assert not g.has("resolve_retries")
+        assert len(config.defaults) == 1
+
+    def test_program_section_does_not_bleed(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+
+program haproxy-api
+    command /usr/bin/haproxy-api
+    option start-on-reload
+
+frontend ft_web
+    bind :80
+""")
+        g = config.global_section
+        assert not g.has("command")
+        assert len(config.frontends) == 1
+
+
+# ===========================================================================
+# Issue #25: Parser — default-server inheritance
+# ===========================================================================
+
+class TestDefaultServerInheritance:
+    """Parser should merge default-server options into server lines."""
+
+    def test_check_option_inherited(self):
+        config = parse_string("""
+backend bk_app
+    default-server ssl check maxconn 500
+    server app1 10.0.0.1:443
+    server app2 10.0.0.2:443
+""")
+        be = config.backends[0]
+        assert len(be.servers) == 2
+        for s in be.servers:
+            assert "check" in s.options
+            assert "maxconn" in s.options
+            assert s.options["maxconn"] == "500"
+            assert s.ssl is True
+
+    def test_explicit_override_not_clobbered(self):
+        config = parse_string("""
+backend bk_app
+    default-server maxconn 500 check
+    server app1 10.0.0.1:443 maxconn 1000
+""")
+        s = config.backends[0].servers[0]
+        assert s.options["maxconn"] == "1000"  # explicit overrides default
+
+    def test_no_default_server_no_change(self):
+        config = parse_string("""
+backend bk_app
+    server app1 10.0.0.1:443 check
+""")
+        s = config.backends[0].servers[0]
+        assert "check" in s.options
+        assert s.ssl is False
+
+
+# ===========================================================================
+# Issue #26: Parser — env var ports
+# ===========================================================================
+
+class TestEnvVarBindParsing:
+    """Parser should preserve address even when port contains env vars."""
+
+    def test_env_var_port_preserves_address(self):
+        config = parse_string("""
+frontend ft_http
+    bind *:${HTTP_PORT}
+""")
+        b = config.frontends[0].binds[0]
+        assert b.address == "0.0.0.0"
+        assert b.port is None  # can't parse env var as int
+
+    def test_env_var_port_with_explicit_address(self):
+        config = parse_string("""
+frontend ft_http
+    bind 0.0.0.0:${STATS_PORT}
+""")
+        b = config.frontends[0].binds[0]
+        assert b.address == "0.0.0.0"
+
+
+# ===========================================================================
+# Issue #27: Process — uid and master-worker
+# ===========================================================================
+
+class TestProcessUidAndMasterWorker:
+    """check_non_root_user should recognise uid, check_daemon_mode should
+    recognise master-worker."""
+
+    def test_uid_non_root_pass(self):
+        config = parse_string("global\n    uid 200\n")
+        finding = check_non_root_user(config)
+        assert finding.status == Status.PASS
+        assert "uid 200" in finding.evidence
+
+    def test_uid_root_fail(self):
+        config = parse_string("global\n    uid 0\n")
+        finding = check_non_root_user(config)
+        assert finding.status == Status.FAIL
+
+    def test_user_still_works(self):
+        config = parse_string("global\n    user haproxy\n")
+        finding = check_non_root_user(config)
+        assert finding.status == Status.PASS
+
+    def test_no_user_or_uid_fail(self):
+        config = parse_string("global\n    log /dev/log local0\n")
+        finding = check_non_root_user(config)
+        assert finding.status == Status.FAIL
+
+    def test_master_worker_pass(self):
+        config = parse_string("global\n    master-worker\n")
+        finding = check_daemon_mode(config)
+        assert finding.status == Status.PASS
+        assert "master-worker" in finding.evidence
+
+    def test_daemon_still_works(self):
+        config = parse_string("global\n    daemon\n")
+        finding = check_daemon_mode(config)
+        assert finding.status == Status.PASS
+
+    def test_no_daemon_or_master_worker_fail(self):
+        config = parse_string("global\n    log /dev/log local0\n")
+        finding = check_daemon_mode(config)
+        assert finding.status == Status.FAIL
+
+
+# ===========================================================================
+# Issue #30: Process — gid directive
+# ===========================================================================
+
+class TestProcessGid:
+    """check_user_group should recognise gid directive."""
+
+    def test_gid_pass(self):
+        config = parse_string("global\n    gid 200\n")
+        finding = check_user_group(config)
+        assert finding.status == Status.PASS
+        assert "gid 200" in finding.evidence
+
+    def test_group_still_works(self):
+        config = parse_string("global\n    group haproxy\n")
+        finding = check_user_group(config)
+        assert finding.status == Status.PASS
+
+    def test_no_group_or_gid_fail(self):
+        config = parse_string("global\n    log /dev/log local0\n")
+        finding = check_user_group(config)
+        assert finding.status == Status.FAIL
+
+
+# ===========================================================================
+# Issue #20: TLS — force-tlsv12 and no-sslv3/no-tlsv10/no-tlsv11
+# ===========================================================================
+
+class TestMinTLSVersionAlternatives:
+    """check_min_tls_version should recognise force-tlsv12 and no-ssl/tls combos."""
+
+    def test_force_tlsv12_pass(self):
+        config = parse_string("""
+global
+    ssl-default-bind-options force-tlsv12
+""")
+        finding = check_min_tls_version(config)
+        assert finding.status == Status.PASS
+
+    def test_no_ssl_tls_combo_pass(self):
+        config = parse_string("""
+global
+    ssl-default-bind-options no-sslv3 no-tlsv10 no-tlsv11
+""")
+        finding = check_min_tls_version(config)
+        assert finding.status == Status.PASS
+
+    def test_incomplete_no_combo_fail(self):
+        """Only no-sslv3 and no-tlsv10 — missing no-tlsv11."""
+        config = parse_string("""
+global
+    ssl-default-bind-options no-sslv3 no-tlsv10
+""")
+        finding = check_min_tls_version(config)
+        assert finding.status == Status.FAIL
+
+
+# ===========================================================================
+# Issue #21: TLS — ssl-dh-param-file
+# ===========================================================================
+
+class TestDHParamFile:
+    """check_dh_param_size should recognise ssl-dh-param-file."""
+
+    def test_dh_param_file_pass(self):
+        config = parse_string("""
+global
+    ssl-dh-param-file /etc/haproxy/dhparams.pem
+""")
+        finding = check_dh_param_size(config)
+        assert finding.status == Status.PASS
+        assert "ssl-dh-param-file" in finding.evidence
+
+    def test_numeric_dh_param_still_works(self):
+        config = parse_string("""
+global
+    tune.ssl.default-dh-param 2048
+""")
+        finding = check_dh_param_size(config)
+        assert finding.status == Status.PASS
+
+
+# ===========================================================================
+# Issue #29: TLS — no ciphers configured → PARTIAL
+# ===========================================================================
+
+class TestNoCiphersConfigured:
+    """check_no_weak_ciphers should return PARTIAL when no ciphers are configured."""
+
+    def test_no_ciphers_partial(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+
+frontend ft_https
+    bind :443 ssl crt /cert.pem
+""")
+        finding = check_no_weak_ciphers(config)
+        assert finding.status == Status.PARTIAL
+        assert "No explicit cipher" in finding.message
+
+
+# ===========================================================================
+# Issue #22 & #32: Logging — stdout and localhost as local targets
+# ===========================================================================
+
+class TestRemoteSyslogLocal:
+    """check_remote_syslog should treat stdout, 127.0.0.1, and ::1 as local."""
+
+    def test_stdout_is_local(self):
+        config = parse_string("""
+global
+    log stdout format raw local0
+""")
+        finding = check_remote_syslog(config)
+        assert finding.status == Status.PARTIAL  # local only
+        assert "local" in finding.evidence.lower()
+
+    def test_stderr_is_local(self):
+        config = parse_string("""
+global
+    log stderr format raw local0
+""")
+        finding = check_remote_syslog(config)
+        assert finding.status == Status.PARTIAL
+
+    def test_fd_is_local(self):
+        config = parse_string("""
+global
+    log fd@1 local0
+""")
+        finding = check_remote_syslog(config)
+        assert finding.status == Status.PARTIAL
+
+    def test_127_0_0_1_is_local(self):
+        config = parse_string("""
+global
+    log 127.0.0.1 local0
+""")
+        finding = check_remote_syslog(config)
+        assert finding.status == Status.PARTIAL
+
+    def test_localhost_is_local(self):
+        config = parse_string("""
+global
+    log localhost local0
+""")
+        finding = check_remote_syslog(config)
+        assert finding.status == Status.PARTIAL
+
+    def test_remote_ip_is_remote(self):
+        config = parse_string("""
+global
+    log 10.0.0.1:514 local0
+""")
+        finding = check_remote_syslog(config)
+        assert finding.status == Status.PASS
+
+
+# ===========================================================================
+# Issue #23: Logging — custom log-format recognised
+# ===========================================================================
+
+class TestLogFormatRecognised:
+    """check_httplog_or_tcplog should recognise custom log-format directives."""
+
+    def test_log_format_pass(self):
+        config = parse_string("""
+defaults
+    mode http
+    log-format "%ci:%cp [%tr] %ft %b/%s %ST"
+""")
+        finding = check_httplog_or_tcplog(config)
+        assert finding.status == Status.PASS
+        assert "log-format" in finding.evidence.lower()
+
+    def test_httplog_still_works(self):
+        config = parse_string("""
+defaults
+    mode http
+    option httplog
+""")
+        finding = check_httplog_or_tcplog(config)
+        assert finding.status == Status.PASS
+
+    def test_neither_fail(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        finding = check_httplog_or_tcplog(config)
+        assert finding.status == Status.FAIL
+
+
+# ===========================================================================
+# Issue #18: Headers — conditional stripping
+# ===========================================================================
+
+class TestHeaderConditionalStripping:
+    """_extract_header_value should strip if/unless conditionals."""
+
+    def test_x_frame_options_with_conditional_pass(self):
+        config = parse_string("""
+frontend ft_web
+    bind :443 ssl crt /cert.pem
+    http-response set-header X-Frame-Options SAMEORIGIN if !is_stats
+""")
+        finding = check_x_frame_options(config)
+        assert finding.status == Status.PASS
+
+    def test_x_content_type_with_unless_pass(self):
+        config = parse_string("""
+frontend ft_web
+    bind :443 ssl crt /cert.pem
+    http-response set-header X-Content-Type-Options nosniff unless is_download
+""")
+        finding = check_x_content_type_options(config)
+        assert finding.status == Status.PASS
+
+
+# ===========================================================================
+# Issue #19: Disclosure — regex del-header patterns
+# ===========================================================================
+
+class TestDelHeaderRegex:
+    """del-header with regex patterns should be recognised."""
+
+    def test_regex_server_header_pass(self):
+        config = parse_string("""
+frontend ft_web
+    bind :80
+    http-response del-header ^Server:.*
+""")
+        finding = check_server_header_removed(config)
+        assert finding.status == Status.PASS
+
+    def test_regex_version_header_pass(self):
+        config = parse_string("""
+defaults
+    http-response del-header ^X-Powered-By:.*
+    http-response del-header ^X-AspNet-Version:.*
+""")
+        finding = check_version_hidden(config)
+        assert finding.status == Status.PASS
+
+
+# ===========================================================================
+# Issue #31: Global — TCP stats socket should not require mode
+# ===========================================================================
+
+class TestStatsSocketTCP:
+    """TCP-based stats sockets should not be flagged for missing mode."""
+
+    def test_tcp_socket_no_mode_pass(self):
+        config = parse_string("""
+global
+    stats socket 127.0.0.1:9999 level admin
+""")
+        finding = check_stats_socket_permissions(config)
+        assert finding.status == Status.PASS
+
+    def test_unix_socket_no_mode_fail(self):
+        config = parse_string("""
+global
+    stats socket /var/run/haproxy.sock level admin
+""")
+        finding = check_stats_socket_permissions(config)
+        assert finding.status == Status.FAIL
+        assert "missing mode" in finding.evidence.lower()
+
+    def test_unix_socket_with_mode_pass(self):
+        config = parse_string("""
+global
+    stats socket /var/run/haproxy.sock mode 660 level admin
+""")
+        finding = check_stats_socket_permissions(config)
+        assert finding.status == Status.PASS
+
+
+# ===========================================================================
+# Issue #28: Access — GPC circuit breaker false positive
+# ===========================================================================
+
+class TestIPReputationGPCFalsePositive:
+    """GPC counters for circuit breaking should not trigger IP reputation pass."""
+
+    def test_gpc_circuit_breaker_not_ip_reputation(self):
+        config = parse_string("""
+frontend ft_web
+    bind :80
+
+backend bk_app
+    stick-table type ip size 200k expire 5m store http_req_rate(10s),gpc0,gpc0_rate(10s),gpc1
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_ip_reputation_integration(config)
+        assert finding.status == Status.FAIL  # Not IP reputation
+
+    def test_gpc_with_src_deny_is_ip_reputation(self):
+        config = parse_string("""
+frontend ft_web
+    bind :80
+    stick-table type ip size 200k store gpc0
+    http-request deny if { src_get_gpc0 gt 0 } { src -f /etc/haproxy/blacklist.lst }
+""")
+        finding = check_ip_reputation_integration(config)
+        assert finding.status == Status.PASS

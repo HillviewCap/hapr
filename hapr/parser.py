@@ -29,6 +29,14 @@ _SECTION_RE = re.compile(
     r"(?:\s+(\S.*))?$"
 )
 
+# Sections the parser recognises as section boundaries but does not model.
+# When one of these is encountered the parser stops appending directives to
+# the previous section, avoiding directive bleed-through (issue #24).
+_UNMODELED_SECTION_RE = re.compile(
+    r"^(program|peers|resolvers|ring|log-forward|http-errors|cache|fcgi-app|mailers)"
+    r"(?:\s+(\S.*))?$"
+)
+
 # Bind line:  bind :443 ssl crt /etc/ssl/cert.pem
 _BIND_RE = re.compile(
     r"^bind\s+(.+)$", re.IGNORECASE
@@ -99,6 +107,18 @@ def parse_string(text: str) -> HAProxyConfig:
                 current_obj = Userlist(name=current_name)
             continue
 
+        # Check for unmodeled section types (program, peers, resolvers, etc.)
+        # to prevent their directives from bleeding into the previous section.
+        # Only match when the line is NOT indented — indented lines are
+        # directives inside the current section (e.g. "peers mypeers" as a
+        # directive within a backend is valid HAProxy syntax).
+        stripped = _strip_comment(raw_line)
+        if stripped and not stripped[0].isspace() and _UNMODELED_SECTION_RE.match(line):
+            _save_section(config, current_section, current_obj)
+            current_section = None
+            current_obj = None
+            continue
+
         if current_obj is None:
             continue
 
@@ -166,9 +186,9 @@ def _parse_directive(
     if isinstance(section, (Backend, ListenSection)):
         sm = _SERVER_RE.match(line)
         if sm:
-            section.servers.append(
-                _parse_server(sm.group(1), sm.group(2), sm.group(3), line, line_num)
-            )
+            server = _parse_server(sm.group(1), sm.group(2), sm.group(3), line, line_num)
+            _apply_default_server(section, server)
+            section.servers.append(server)
             return
 
     # Userlist directives
@@ -187,6 +207,55 @@ def _parse_directive(
     keyword = parts[0]
     args = parts[1] if len(parts) > 1 else ""
     section.directives.append(Directive(keyword=keyword, args=args, line_number=line_num))
+
+
+def _apply_default_server(
+    section: Backend | ListenSection, server: ServerLine
+) -> None:
+    """Merge ``default-server`` options into *server* for keys it doesn't already have.
+
+    HAProxy propagates ``default-server`` options to every subsequent
+    ``server`` line in the same section unless the server line explicitly
+    overrides a given option.
+    """
+    ds_directives = [d for d in section.directives if d.keyword == "default-server"]
+    if not ds_directives:
+        return
+
+    # Parse the default-server tokens the same way we parse server options.
+    default_opts: dict[str, str] = {}
+    default_ssl = False
+    for ds in ds_directives:
+        tokens = ds.args.split()
+        i = 0
+        while i < len(tokens):
+            tok = tokens[i]
+            if tok == "ssl":
+                default_ssl = True
+            elif tok in ("check", "backup", "disabled", "agent-check",
+                         "send-proxy", "send-proxy-v2"):
+                default_opts.setdefault(tok, "")
+            elif tok in ("weight", "maxconn", "inter", "fastinter",
+                         "downinter", "rise", "fall", "port", "addr",
+                         "cookie", "id", "observe", "redir", "on-error",
+                         "on-marked-down", "on-marked-up", "error-limit",
+                         "slowstart", "ca-file", "crt", "verify",
+                         "verifyhost", "sni", "ciphers", "ciphersuites",
+                         "ssl-min-ver", "ssl-max-ver", "resolvers",
+                         "resolve-prefer", "init-addr"):
+                if i + 1 < len(tokens):
+                    default_opts.setdefault(tok, tokens[i + 1])
+                    i += 1
+            else:
+                default_opts.setdefault(tok, "")
+            i += 1
+
+    # Apply defaults: only set options that the server line doesn't already have.
+    if default_ssl and not server.ssl:
+        server.ssl = True
+    for key, value in default_opts.items():
+        if key not in server.options:
+            server.options[key] = value
 
 
 def _parse_bind(args_str: str, raw: str, line_num: int) -> BindLine:
@@ -249,11 +318,13 @@ def _parse_address(bind: BindLine, addr_token: str) -> None:
 
     if ":" in addr_token:
         parts = addr_token.rsplit(":", 1)
-        bind.address = parts[0] if parts[0] != "*" else "0.0.0.0"  # nosec B104 — parsing config, not binding
+        addr_part = parts[0] if parts[0] != "*" else "0.0.0.0"  # nosec B104 — parsing config, not binding
         try:
             bind.port = int(parts[1])
         except ValueError:
-            bind.address = addr_token
+            # Port may be an env var like ${HTTP_PORT} — preserve address.
+            pass
+        bind.address = addr_part
     else:
         try:
             bind.port = int(addr_token)

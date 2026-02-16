@@ -21,13 +21,19 @@ def _extract_header_value(directive: Directive, header_name: str) -> str:
 
     The directive args look like ``"set-header X-Frame-Options DENY"``; this
     helper returns the portion after the header name (e.g. ``"DENY"``).
+    HAProxy conditionals (``if …`` / ``unless …``) are stripped.
     """
     match = re.search(
         r"(?:set-header|add-header)\s+" + re.escape(header_name) + r"\s+(.+)",
         directive.args,
         re.IGNORECASE,
     )
-    return match.group(1).strip().strip("\"'") if match else ""
+    if not match:
+        return ""
+    value = match.group(1).strip()
+    # Strip trailing HAProxy conditionals (if ... / unless ...)
+    value = re.split(r"\s+(?:if|unless)\s+", value, maxsplit=1)[0]
+    return value.strip().strip("\"'")
 
 
 def _find_response_header(

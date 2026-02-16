@@ -91,29 +91,34 @@ def check_stats_socket_permissions(config: HAProxyConfig) -> Finding:
     for sd in socket_directives:
         args = sd.args
         # Validate socket path — args format: "socket /path/to/sock ..."
-        # tokens[0] is "socket", tokens[1] is the actual path.
+        # tokens[0] is "socket", tokens[1] is the actual path/address.
         tokens = args.split()
-        if len(tokens) >= 2:
-            socket_path = tokens[1]
-            socket_dir = os.path.dirname(socket_path)
+        if len(tokens) < 2:
+            continue
+
+        socket_target = tokens[1]
+
+        # Determine if this is a TCP socket (IP:port) or Unix socket (path).
+        # TCP sockets contain a colon with a port number, or are an IP address.
+        is_tcp = bool(re.match(r"^[\d.:[\]]+:\d+$", socket_target)) or _IPV4_RE.match(socket_target.split(":")[0]) is not None and ":" in socket_target
+
+        if not is_tcp:
+            # Unix socket — check directory and mode
+            socket_dir = os.path.dirname(socket_target)
             if any(socket_dir == d or socket_dir.startswith(d + "/") for d in _INSECURE_SOCKET_DIRS):
                 issues.append(
                     f"Stats socket in world-writable directory ({socket_dir}): {args}"
                 )
 
-        if "mode " not in args:
-            issues.append(f"Stats socket missing mode restriction: {args}")
-        else:
-            # Extract mode value and check if it is restrictive enough.
-            # Modes are octal-style strings (e.g. "660", "600", "700").
-            # A mode is too permissive when the "other" digit (third digit)
-            # grants any access, i.e. is non-zero.
-            mode_start = args.index("mode ") + 5
-            mode_val = args[mode_start:].split()[0] if args[mode_start:].strip() else ""
-            if mode_val and len(mode_val) == 3 and mode_val.isdigit():
-                other_bits = int(mode_val[2])
-                if other_bits > 0:
-                    issues.append(f"Stats socket mode too permissive ({mode_val}): {args}")
+            if "mode " not in args:
+                issues.append(f"Stats socket missing mode restriction: {args}")
+            else:
+                mode_start = args.index("mode ") + 5
+                mode_val = args[mode_start:].split()[0] if args[mode_start:].strip() else ""
+                if mode_val and len(mode_val) == 3 and mode_val.isdigit():
+                    other_bits = int(mode_val[2])
+                    if other_bits > 0:
+                        issues.append(f"Stats socket mode too permissive ({mode_val}): {args}")
 
         if "level " not in args and "admin" in args.lower():
             issues.append(f"Stats socket allows admin without level restriction: {args}")
