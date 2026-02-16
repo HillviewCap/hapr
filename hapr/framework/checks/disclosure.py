@@ -50,8 +50,9 @@ def check_server_header_removed(config: HAProxyConfig) -> Finding:
             args_lower = d.args.lower()
 
             # Modern syntax: http-response del-header Server
+            # Also match regex patterns like del-header ^Server:.*
             if kw == "http-response" and re.search(
-                r"del-header\s+server\b", args_lower
+                r"del-header\s+(?:\^?\s*server\b|server\b)", args_lower
             ):
                 evidence_parts.append(
                     f"{kind} '{name}': http-response del-header Server"
@@ -228,12 +229,20 @@ def check_version_hidden(config: HAProxyConfig) -> Finding:
             args_lower = d.args.lower()
 
             # http-response del-header <header>
+            # Also recognise regex patterns like del-header ^X-Powered-By:.*
             if kw == "http-response":
                 match = re.search(r"del-header\s+(\S+)", args_lower)
                 if match:
-                    header_name = match.group(1).lower()
-                    if header_name in _VERSION_HEADERS:
-                        removed_headers.add(header_name)
+                    raw_header = match.group(1).lower()
+                    # Strip regex anchors/wildcards for comparison
+                    cleaned = raw_header.lstrip("^").rstrip(".*:").rstrip(".*")
+                    if cleaned in _VERSION_HEADERS:
+                        removed_headers.add(cleaned)
+                        evidence_parts.append(
+                            f"{kind} '{name}': http-response del-header {match.group(1)}"
+                        )
+                    elif raw_header in _VERSION_HEADERS:
+                        removed_headers.add(raw_header)
                         evidence_parts.append(
                             f"{kind} '{name}': http-response del-header {match.group(1)}"
                         )

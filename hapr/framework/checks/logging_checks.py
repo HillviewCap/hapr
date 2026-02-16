@@ -368,20 +368,30 @@ def check_log_level(config: HAProxyConfig) -> Finding:
 
 
 def check_httplog_or_tcplog(config: HAProxyConfig) -> Finding:
-    """HAPR-LOG-005: Check for ``option httplog`` or ``option tcplog``.
+    """HAPR-LOG-005: Check for ``option httplog``, ``option tcplog``, or ``log-format``.
 
-    Without ``option httplog`` or ``option tcplog``, HAProxy uses a very
-    basic connection-level log format that omits HTTP request details and
-    timing information.  At least one of these options should be present
-    in defaults or frontend/listen sections.
+    Without ``option httplog``, ``option tcplog``, or a custom
+    ``log-format`` directive, HAProxy uses a very basic connection-level
+    log format that omits HTTP request details and timing information.
+    At least one of these options should be present in defaults or
+    frontend/listen sections.
 
     Returns PASS if found, FAIL if not.
     """
     evidence_parts: list[str] = []
+    log_format_parts: list[str] = []
 
-    # Check defaults
+    all_sections: list[tuple[str, object]] = []
     for section in config.defaults:
-        section_label = f"defaults({section.name or 'unnamed'})"
+        all_sections.append((f"defaults({section.name or 'unnamed'})", section))
+    for section in config.frontends:
+        all_sections.append((f"frontend '{section.name}'", section))
+    for section in config.backends:
+        all_sections.append((f"backend '{section.name}'", section))
+    for section in config.listens:
+        all_sections.append((f"listen '{section.name}'", section))
+
+    for section_label, section in all_sections:
         for directive in section.get("option"):
             args_lower = directive.args.lower()
             if "httplog" in args_lower:
@@ -389,64 +399,39 @@ def check_httplog_or_tcplog(config: HAProxyConfig) -> Finding:
             elif "tcplog" in args_lower:
                 evidence_parts.append(f"option tcplog in {section_label}")
 
-    # Check frontends
-    for section in config.frontends:
-        for directive in section.get("option"):
-            args_lower = directive.args.lower()
-            if "httplog" in args_lower:
-                evidence_parts.append(
-                    f"option httplog in frontend '{section.name}'"
-                )
-            elif "tcplog" in args_lower:
-                evidence_parts.append(
-                    f"option tcplog in frontend '{section.name}'"
-                )
-
-    # Check backends
-    for section in config.backends:
-        for directive in section.get("option"):
-            args_lower = directive.args.lower()
-            if "httplog" in args_lower:
-                evidence_parts.append(
-                    f"option httplog in backend '{section.name}'"
-                )
-            elif "tcplog" in args_lower:
-                evidence_parts.append(
-                    f"option tcplog in backend '{section.name}'"
-                )
-
-    # Check listen sections
-    for section in config.listens:
-        for directive in section.get("option"):
-            args_lower = directive.args.lower()
-            if "httplog" in args_lower:
-                evidence_parts.append(
-                    f"option httplog in listen '{section.name}'"
-                )
-            elif "tcplog" in args_lower:
-                evidence_parts.append(
-                    f"option tcplog in listen '{section.name}'"
-                )
+        # Also check for custom log-format directives
+        for directive in section.get("log-format"):
+            log_format_parts.append(
+                f"log-format in {section_label}: {directive.args}"
+            )
 
     if evidence_parts:
         return Finding(
             check_id="HAPR-LOG-005",
             status=Status.PASS,
             message="HTTP or TCP log option is configured for detailed logging.",
-            evidence="; ".join(evidence_parts),
+            evidence="; ".join(evidence_parts + log_format_parts),
+        )
+
+    if log_format_parts:
+        return Finding(
+            check_id="HAPR-LOG-005",
+            status=Status.PASS,
+            message="Custom log-format is configured, providing detailed logging.",
+            evidence="; ".join(log_format_parts),
         )
 
     return Finding(
         check_id="HAPR-LOG-005",
         status=Status.FAIL,
         message=(
-            "Neither 'option httplog' nor 'option tcplog' is configured. "
-            "Without these, HAProxy uses a minimal log format that lacks "
-            "HTTP request details and timing information. Add 'option httplog' "
-            "to defaults or frontends for HTTP proxies, or 'option tcplog' "
-            "for TCP-only proxies."
+            "Neither 'option httplog', 'option tcplog', nor a custom "
+            "'log-format' is configured. Without these, HAProxy uses a "
+            "minimal log format that lacks HTTP request details and timing "
+            "information. Add 'option httplog' to defaults or frontends for "
+            "HTTP proxies, or 'option tcplog' for TCP-only proxies."
         ),
-        evidence="No option httplog or option tcplog directives found in defaults, frontends, or listen sections.",
+        evidence="No option httplog, option tcplog, or log-format directives found.",
     )
 
 
@@ -519,14 +504,40 @@ def check_dontlognull(config: HAProxyConfig) -> Finding:
     )
 
 
+def _is_local_log_target(target: str) -> bool:
+    """Return True if *target* is a local log destination, not a remote syslog server.
+
+    Local targets include:
+    - Unix socket paths (starting with ``/``)
+    - ``stdout``, ``stderr``
+    - File descriptors (``fd@<N>``)
+    - Localhost addresses: ``127.0.0.1``, ``::1``, ``localhost``
+      (with or without port suffix)
+    """
+    if target.startswith("/"):
+        return True
+    target_lower = target.lower()
+    if target_lower in ("stdout", "stderr"):
+        return True
+    if target_lower.startswith("fd@"):
+        return True
+    # Strip optional :port for IP-based checks
+    host = target.rsplit(":", 1)[0] if ":" in target and not target.startswith("[") else target
+    if host.startswith("[") and host.endswith("]"):
+        host = host[1:-1]
+    if host.lower() in ("127.0.0.1", "::1", "localhost"):
+        return True
+    return False
+
+
 def check_remote_syslog(config: HAProxyConfig) -> Finding:
     """HAPR-LOG-007: Check that at least one log directive sends to a remote syslog server.
 
     Centralized remote logging ensures that log data survives host compromise
     and enables aggregated monitoring.  This check examines global ``log``
     directives to determine whether any target is a remote syslog endpoint
-    (IP or hostname with optional port) rather than a local Unix socket
-    (paths starting with ``/``).
+    (IP or hostname with optional port) rather than a local destination
+    (Unix sockets, stdout/stderr, fd@, or localhost addresses).
 
     Returns
     -------
@@ -559,7 +570,7 @@ def check_remote_syslog(config: HAProxyConfig) -> Finding:
             continue
         target = tokens[0]
 
-        if target.startswith("/"):
+        if _is_local_log_target(target):
             local_targets.append(f"log {directive.args} (local: {target})")
         else:
             remote_targets.append(f"log {directive.args} (remote: {target})")

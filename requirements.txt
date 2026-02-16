@@ -1,6 +1,6 @@
 # Pinned dependencies generated from pip freeze
 # Direct dependencies
-click==8.1.6
+click==8.3.1
 Jinja2==3.1.6
 plotly==6.5.2
 PyYAML==6.0.1
@@ -16,7 +16,7 @@ charset-normalizer==3.4.4
 cryptography==46.0.5
 idna==3.11
 markdown-it-py==3.0.0
-MarkupSafe==2.1.5
+MarkupSafe==3.0.3
 mdurl==0.1.2
 narwhals==2.16.0
 nassl==5.4.0
@@ -25,7 +25,7 @@ pycparser==3.0
 pydantic==2.12.5
 pydantic_core==2.41.5
 Pygments==2.19.2
-pyOpenSSL==23.2.0
+pyOpenSSL==25.3.0
 requests==2.32.5
 tls_parser==2.0.2
 typing_extensions==4.15.0

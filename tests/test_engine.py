@@ -2,7 +2,7 @@
 
 import pytest
 from hapr.parser import parse_string
-from hapr.framework.engine import run_audit, _compute_category_scores, _compute_overall_score, _letter_grade
+from hapr.framework.engine import run_audit, _config_has_http_mode, _compute_category_scores, _compute_overall_score, _letter_grade
 from hapr.models import (
     AuditResult,
     CategoryScore,
@@ -260,3 +260,101 @@ class TestSplitBaseline:
             assert check["category"] in valid, (
                 f"Check {check['id']} has category '{check['category']}' not in metadata"
             )
+
+
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: Mode-aware check filtering (TCP vs HTTP)
+# ---------------------------------------------------------------------------
+
+class TestModeAwareFiltering:
+    """Test that HTTP-only checks get N/A for TCP-only configs."""
+
+    def test_tcp_only_config_skips_http_checks(self):
+        config = parse_string("""
+defaults
+    mode tcp
+    timeout client 30s
+    timeout server 30s
+    timeout connect 5s
+
+frontend ft_tcp
+    bind *:3306
+    default_backend bk_mysql
+
+backend bk_mysql
+    server db1 10.0.0.1:3306 check
+""")
+        result = run_audit(config)
+        # HTTP-only checks should return N/A
+        http_check_ids = {
+            "HAPR-HDR-001", "HAPR-HDR-002", "HAPR-HDR-003",
+            "HAPR-HDR-004", "HAPR-HDR-005", "HAPR-HDR-006",
+            "HAPR-HDR-007", "HAPR-HDR-008", "HAPR-HDR-009",
+            "HAPR-TLS-006",
+            "HAPR-TMO-004", "HAPR-TMO-006",
+            "HAPR-REQ-001", "HAPR-REQ-002", "HAPR-REQ-003",
+            "HAPR-REQ-004", "HAPR-REQ-005",
+            "HAPR-ACL-002", "HAPR-ACL-007",
+            "HAPR-JWT-001", "HAPR-JWT-002",
+            "HAPR-BOT-001",
+            "HAPR-API-001", "HAPR-API-002",
+            "HAPR-FRT-003", "HAPR-FRT-004", "HAPR-FRT-005",
+            "HAPR-FRT-006", "HAPR-FRT-007", "HAPR-COMP-001",
+            "HAPR-BKD-004", "HAPR-CACHE-001",
+            "HAPR-INF-001", "HAPR-INF-003", "HAPR-INF-005",
+        }
+        for finding in result.findings:
+            if finding.check_id in http_check_ids:
+                assert finding.status == Status.NOT_APPLICABLE, (
+                    f"{finding.check_id} should be N/A for TCP-only config, got {finding.status}"
+                )
+
+    def test_http_config_runs_http_checks(self):
+        config = parse_string("""
+defaults
+    mode http
+    timeout client 30s
+    timeout server 30s
+    timeout connect 5s
+
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+
+backend bk_web
+    server web1 10.0.0.1:80 check
+""")
+        result = run_audit(config)
+        # HTTP checks should NOT be N/A (they may pass or fail)
+        for finding in result.findings:
+            if finding.check_id == "HAPR-HDR-001":
+                assert finding.status != Status.NOT_APPLICABLE
+
+    def test_config_has_http_mode_explicit_http(self):
+        config = parse_string("""
+defaults
+    mode http
+""")
+        assert _config_has_http_mode(config) is True
+
+    def test_config_has_http_mode_explicit_tcp(self):
+        config = parse_string("""
+defaults
+    mode tcp
+
+frontend ft_tcp
+    bind *:3306
+    mode tcp
+""")
+        assert _config_has_http_mode(config) is False
+
+    def test_config_has_http_mode_no_explicit_mode(self):
+        """HAProxy defaults to HTTP when no mode is specified."""
+        config = parse_string("""
+defaults
+    timeout client 30s
+""")
+        assert _config_has_http_mode(config) is True
+
