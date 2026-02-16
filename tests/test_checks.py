@@ -103,6 +103,7 @@ backend bk_mysql
             "HAPR-HDR-004", "HAPR-HDR-005", "HAPR-HDR-006",
             "HAPR-HDR-009",
             "HAPR-TLS-006",
+            "HAPR-TMO-004", "HAPR-TMO-006",
             "HAPR-REQ-001", "HAPR-REQ-002", "HAPR-REQ-003", "HAPR-REQ-004",
             "HAPR-ACL-002",
             "HAPR-FRT-003", "HAPR-FRT-004", "HAPR-FRT-005", "HAPR-FRT-006",
@@ -2855,3 +2856,823 @@ backend bk_web
         finding = check_hsts_configured(config)
         assert finding.check_id == "HAPR-TLS-006"
         assert finding.status == Status.PASS
+
+
+# ===========================================================================
+# Logging Category Validation Tests
+# ===========================================================================
+
+from hapr.framework.checks.logging_checks import (
+    check_logging_configured,
+    check_log_format as check_log_format_fn,
+    check_log_level,
+    check_httplog_or_tcplog,
+    check_dontlognull,
+    check_remote_syslog,
+)
+
+from hapr.framework.checks.disclosure import (
+    check_server_header_removed,
+    check_custom_error_pages,
+    check_version_hidden,
+    check_stats_version_hidden,
+    check_xff_spoofing_prevention,
+)
+
+
+# ---------------------------------------------------------------------------
+# HAPR-LOG-001: Log Directive Present
+# ---------------------------------------------------------------------------
+
+class TestLogDirectivePresent:
+    """Test check_logging_configured for HAPR-LOG-001."""
+
+    def test_pass_single_log_directive(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = check_logging_configured(config)
+        assert finding.check_id == "HAPR-LOG-001"
+        assert finding.status == Status.PASS
+
+    def test_pass_multiple_log_directives(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+    log 10.0.0.1:514 local1
+""")
+        finding = check_logging_configured(config)
+        assert finding.check_id == "HAPR-LOG-001"
+        assert finding.status == Status.PASS
+
+    def test_fail_no_log_directive(self):
+        config = parse_string("""
+global
+    maxconn 4096
+""")
+        finding = check_logging_configured(config)
+        assert finding.check_id == "HAPR-LOG-001"
+        assert finding.status == Status.FAIL
+
+    def test_fail_empty_global(self):
+        config = parse_string("""
+global
+""")
+        finding = check_logging_configured(config)
+        assert finding.check_id == "HAPR-LOG-001"
+        assert finding.status == Status.FAIL
+
+    def test_pass_remote_log(self):
+        config = parse_string("""
+global
+    log 10.0.0.1:514 local0 info
+""")
+        finding = check_logging_configured(config)
+        assert finding.check_id == "HAPR-LOG-001"
+        assert finding.status == Status.PASS
+
+
+# ---------------------------------------------------------------------------
+# HAPR-LOG-002: Log Format — Backend Coverage
+# ---------------------------------------------------------------------------
+
+class TestLogFormatBackendCoverage:
+    """Test check_log_format for HAPR-LOG-002 including backend sections."""
+
+    def test_pass_log_format_in_backend(self):
+        config = parse_string("""
+backend bk_web
+    log-format "%ci:%cp [%t] %ft %b/%s %Tq/%Tw/%Tc/%Tr/%Tt"
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_log_format_fn(config)
+        assert finding.check_id == "HAPR-LOG-002"
+        assert finding.status == Status.PASS
+        assert "backend" in finding.evidence.lower()
+
+    def test_partial_httplog_in_backend(self):
+        config = parse_string("""
+backend bk_web
+    option httplog
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_log_format_fn(config)
+        assert finding.check_id == "HAPR-LOG-002"
+        assert finding.status == Status.PARTIAL
+        assert "backend" in finding.evidence.lower()
+
+    def test_fail_no_log_format_anywhere(self):
+        config = parse_string("""
+defaults
+    mode http
+
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+
+backend bk_web
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_log_format_fn(config)
+        assert finding.check_id == "HAPR-LOG-002"
+        assert finding.status == Status.FAIL
+
+    def test_pass_log_format_in_defaults(self):
+        config = parse_string("""
+defaults
+    log-format "%ci:%cp [%t] %ft %b/%s %Tq/%Tw/%Tc/%Tr/%Tt"
+""")
+        finding = check_log_format_fn(config)
+        assert finding.check_id == "HAPR-LOG-002"
+        assert finding.status == Status.PASS
+
+
+# ---------------------------------------------------------------------------
+# HAPR-LOG-004: Log Level — All Code Paths
+# ---------------------------------------------------------------------------
+
+class TestLogLevelAllPaths:
+    """Test check_log_level for HAPR-LOG-004 covering all code paths."""
+
+    def test_fail_no_log_directives(self):
+        config = parse_string("""
+global
+    maxconn 4096
+""")
+        finding = check_log_level(config)
+        assert finding.check_id == "HAPR-LOG-004"
+        assert finding.status == Status.FAIL
+
+    def test_pass_info_level(self):
+        config = parse_string("""
+global
+    log /dev/log local0 info
+""")
+        finding = check_log_level(config)
+        assert finding.check_id == "HAPR-LOG-004"
+        assert finding.status == Status.PASS
+
+    def test_pass_notice_level(self):
+        config = parse_string("""
+global
+    log /dev/log local0 notice
+""")
+        finding = check_log_level(config)
+        assert finding.check_id == "HAPR-LOG-004"
+        assert finding.status == Status.PASS
+
+    def test_pass_warning_level(self):
+        config = parse_string("""
+global
+    log /dev/log local0 warning
+""")
+        finding = check_log_level(config)
+        assert finding.check_id == "HAPR-LOG-004"
+        assert finding.status == Status.PASS
+
+    def test_partial_debug_level(self):
+        config = parse_string("""
+global
+    log /dev/log local0 debug
+""")
+        finding = check_log_level(config)
+        assert finding.check_id == "HAPR-LOG-004"
+        assert finding.status == Status.PARTIAL
+
+    def test_partial_err_level(self):
+        config = parse_string("""
+global
+    log /dev/log local0 err
+""")
+        finding = check_log_level(config)
+        assert finding.check_id == "HAPR-LOG-004"
+        assert finding.status == Status.PARTIAL
+
+    def test_partial_emerg_level(self):
+        config = parse_string("""
+global
+    log /dev/log local0 emerg
+""")
+        finding = check_log_level(config)
+        assert finding.check_id == "HAPR-LOG-004"
+        assert finding.status == Status.PARTIAL
+
+    def test_pass_no_explicit_level(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = check_log_level(config)
+        assert finding.check_id == "HAPR-LOG-004"
+        assert finding.status == Status.PASS
+
+
+# ---------------------------------------------------------------------------
+# HAPR-LOG-005: httplog/tcplog — Backend Coverage
+# ---------------------------------------------------------------------------
+
+class TestHttplogTcplogBackendCoverage:
+    """Test check_httplog_or_tcplog for HAPR-LOG-005 including backends."""
+
+    def test_pass_httplog_in_backend(self):
+        config = parse_string("""
+backend bk_web
+    option httplog
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_httplog_or_tcplog(config)
+        assert finding.check_id == "HAPR-LOG-005"
+        assert finding.status == Status.PASS
+        assert "backend" in finding.evidence.lower()
+
+    def test_pass_tcplog_in_backend(self):
+        config = parse_string("""
+backend bk_tcp
+    option tcplog
+    server srv1 10.0.0.1:3306 check
+""")
+        finding = check_httplog_or_tcplog(config)
+        assert finding.check_id == "HAPR-LOG-005"
+        assert finding.status == Status.PASS
+        assert "backend" in finding.evidence.lower()
+
+    def test_fail_no_httplog_tcplog(self):
+        config = parse_string("""
+defaults
+    mode http
+
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+
+backend bk_web
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_httplog_or_tcplog(config)
+        assert finding.check_id == "HAPR-LOG-005"
+        assert finding.status == Status.FAIL
+
+    def test_pass_httplog_in_defaults(self):
+        config = parse_string("""
+defaults
+    option httplog
+""")
+        finding = check_httplog_or_tcplog(config)
+        assert finding.check_id == "HAPR-LOG-005"
+        assert finding.status == Status.PASS
+
+    def test_pass_tcplog_in_listen(self):
+        config = parse_string("""
+listen mysql
+    bind *:3306
+    option tcplog
+    server db1 10.0.0.1:3306 check
+""")
+        finding = check_httplog_or_tcplog(config)
+        assert finding.check_id == "HAPR-LOG-005"
+        assert finding.status == Status.PASS
+
+
+# ---------------------------------------------------------------------------
+# HAPR-LOG-006: dontlognull — Backend Coverage
+# ---------------------------------------------------------------------------
+
+class TestDontlognullBackendCoverage:
+    """Test check_dontlognull for HAPR-LOG-006 including backends."""
+
+    def test_pass_dontlognull_in_backend(self):
+        config = parse_string("""
+backend bk_web
+    option dontlognull
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_dontlognull(config)
+        assert finding.check_id == "HAPR-LOG-006"
+        assert finding.status == Status.PASS
+        assert "backend" in finding.evidence.lower()
+
+    def test_fail_no_dontlognull(self):
+        config = parse_string("""
+defaults
+    mode http
+
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+
+backend bk_web
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_dontlognull(config)
+        assert finding.check_id == "HAPR-LOG-006"
+        assert finding.status == Status.FAIL
+
+    def test_pass_dontlognull_in_defaults(self):
+        config = parse_string("""
+defaults
+    option dontlognull
+""")
+        finding = check_dontlognull(config)
+        assert finding.check_id == "HAPR-LOG-006"
+        assert finding.status == Status.PASS
+
+
+# ---------------------------------------------------------------------------
+# HAPR-LOG-007: Remote Syslog — Additional Paths
+# ---------------------------------------------------------------------------
+
+class TestRemoteSyslogAdditionalPaths:
+    """Test check_remote_syslog for HAPR-LOG-007 additional code paths."""
+
+    def test_pass_remote_target(self):
+        config = parse_string("""
+global
+    log 10.0.0.1:514 local0
+""")
+        finding = check_remote_syslog(config)
+        assert finding.check_id == "HAPR-LOG-007"
+        assert finding.status == Status.PASS
+
+    def test_partial_local_only(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+""")
+        finding = check_remote_syslog(config)
+        assert finding.check_id == "HAPR-LOG-007"
+        assert finding.status == Status.PARTIAL
+
+    def test_fail_no_log_directives(self):
+        config = parse_string("""
+global
+    maxconn 4096
+""")
+        finding = check_remote_syslog(config)
+        assert finding.check_id == "HAPR-LOG-007"
+        assert finding.status == Status.FAIL
+
+    def test_pass_mixed_targets(self):
+        config = parse_string("""
+global
+    log /dev/log local0
+    log 10.0.0.1:514 local1
+""")
+        finding = check_remote_syslog(config)
+        assert finding.check_id == "HAPR-LOG-007"
+        assert finding.status == Status.PASS
+
+
+# ===========================================================================
+# Disclosure Category Validation Tests
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# HAPR-INF-001: Server Header Removed
+# ---------------------------------------------------------------------------
+
+class TestServerHeaderRemoved:
+    """Test check_server_header_removed for HAPR-INF-001."""
+
+    def test_pass_del_header_in_frontend(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    http-response del-header Server
+    default_backend bk_web
+""")
+        finding = check_server_header_removed(config)
+        assert finding.check_id == "HAPR-INF-001"
+        assert finding.status == Status.PASS
+
+    def test_pass_set_header_in_defaults(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response set-header Server MyProxy
+""")
+        finding = check_server_header_removed(config)
+        assert finding.check_id == "HAPR-INF-001"
+        assert finding.status == Status.PASS
+
+    def test_pass_add_header_in_frontend(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    http-response add-header Server CustomProxy
+    default_backend bk_web
+""")
+        finding = check_server_header_removed(config)
+        assert finding.check_id == "HAPR-INF-001"
+        assert finding.status == Status.PASS
+
+    def test_pass_del_header_in_backend(self):
+        config = parse_string("""
+backend bk_web
+    http-response del-header Server
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_server_header_removed(config)
+        assert finding.check_id == "HAPR-INF-001"
+        assert finding.status == Status.PASS
+        assert "backend" in finding.evidence.lower()
+
+    def test_pass_rspidel_legacy(self):
+        config = parse_string("""
+defaults
+    mode http
+    rspidel ^Server
+""")
+        finding = check_server_header_removed(config)
+        assert finding.check_id == "HAPR-INF-001"
+        assert finding.status == Status.PASS
+
+    def test_pass_rspdel_legacy(self):
+        config = parse_string("""
+defaults
+    mode http
+    rspdel ^Server
+""")
+        finding = check_server_header_removed(config)
+        assert finding.check_id == "HAPR-INF-001"
+        assert finding.status == Status.PASS
+
+    def test_pass_in_listen(self):
+        config = parse_string("""
+listen app
+    bind *:80
+    http-response del-header Server
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_server_header_removed(config)
+        assert finding.check_id == "HAPR-INF-001"
+        assert finding.status == Status.PASS
+
+    def test_fail_no_directive(self):
+        config = parse_string("""
+defaults
+    mode http
+
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+
+backend bk_web
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_server_header_removed(config)
+        assert finding.check_id == "HAPR-INF-001"
+        assert finding.status == Status.FAIL
+
+    def test_pass_add_header_in_backend(self):
+        config = parse_string("""
+backend bk_web
+    http-response add-header Server CustomProxy
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_server_header_removed(config)
+        assert finding.check_id == "HAPR-INF-001"
+        assert finding.status == Status.PASS
+        assert "backend" in finding.evidence.lower()
+
+
+# ---------------------------------------------------------------------------
+# HAPR-INF-002: Custom Error Pages
+# ---------------------------------------------------------------------------
+
+class TestCustomErrorPages:
+    """Test check_custom_error_pages for HAPR-INF-002."""
+
+    def test_pass_many_error_pages_in_defaults(self):
+        config = parse_string("""
+defaults
+    mode http
+    errorfile 400 /etc/haproxy/errors/400.http
+    errorfile 403 /etc/haproxy/errors/403.http
+    errorfile 500 /etc/haproxy/errors/500.http
+    errorfile 502 /etc/haproxy/errors/502.http
+""")
+        finding = check_custom_error_pages(config)
+        assert finding.check_id == "HAPR-INF-002"
+        assert finding.status == Status.PASS
+
+    def test_partial_few_error_pages(self):
+        config = parse_string("""
+defaults
+    mode http
+    errorfile 500 /etc/haproxy/errors/500.http
+""")
+        finding = check_custom_error_pages(config)
+        assert finding.check_id == "HAPR-INF-002"
+        assert finding.status == Status.PARTIAL
+
+    def test_partial_two_error_pages(self):
+        config = parse_string("""
+defaults
+    mode http
+    errorfile 500 /etc/haproxy/errors/500.http
+    errorfile 502 /etc/haproxy/errors/502.http
+""")
+        finding = check_custom_error_pages(config)
+        assert finding.check_id == "HAPR-INF-002"
+        assert finding.status == Status.PARTIAL
+
+    def test_fail_no_error_pages(self):
+        config = parse_string("""
+defaults
+    mode http
+
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_custom_error_pages(config)
+        assert finding.check_id == "HAPR-INF-002"
+        assert finding.status == Status.FAIL
+
+    def test_pass_error_pages_in_backend(self):
+        config = parse_string("""
+backend bk_web
+    errorfile 400 /etc/haproxy/errors/400.http
+    errorfile 403 /etc/haproxy/errors/403.http
+    errorfile 500 /etc/haproxy/errors/500.http
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_custom_error_pages(config)
+        assert finding.check_id == "HAPR-INF-002"
+        assert finding.status == Status.PASS
+        assert "backend" in finding.evidence.lower()
+
+    def test_pass_error_pages_in_frontend(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    errorfile 400 /etc/haproxy/errors/400.http
+    errorfile 403 /etc/haproxy/errors/403.http
+    errorfile 500 /etc/haproxy/errors/500.http
+    default_backend bk_web
+""")
+        finding = check_custom_error_pages(config)
+        assert finding.check_id == "HAPR-INF-002"
+        assert finding.status == Status.PASS
+
+    def test_pass_error_pages_in_listen(self):
+        config = parse_string("""
+listen app
+    bind *:80
+    errorfile 400 /etc/haproxy/errors/400.http
+    errorfile 403 /etc/haproxy/errors/403.http
+    errorfile 500 /etc/haproxy/errors/500.http
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_custom_error_pages(config)
+        assert finding.check_id == "HAPR-INF-002"
+        assert finding.status == Status.PASS
+
+
+# ---------------------------------------------------------------------------
+# HAPR-INF-003: Version Information Hidden
+# ---------------------------------------------------------------------------
+
+class TestVersionInformationHidden:
+    """Test check_version_hidden for HAPR-INF-003."""
+
+    def test_pass_multiple_version_headers_removed(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response del-header X-Powered-By
+    http-response del-header X-AspNet-Version
+""")
+        finding = check_version_hidden(config)
+        assert finding.check_id == "HAPR-INF-003"
+        assert finding.status == Status.PASS
+
+    def test_partial_one_version_header_removed(self):
+        config = parse_string("""
+defaults
+    mode http
+    http-response del-header X-Powered-By
+""")
+        finding = check_version_hidden(config)
+        assert finding.check_id == "HAPR-INF-003"
+        assert finding.status == Status.PARTIAL
+
+    def test_partial_forwardfor_custom_header(self):
+        config = parse_string("""
+defaults
+    mode http
+    option forwardfor header X-Real-IP
+""")
+        finding = check_version_hidden(config)
+        assert finding.check_id == "HAPR-INF-003"
+        assert finding.status == Status.PARTIAL
+
+    def test_fail_no_version_headers_removed(self):
+        config = parse_string("""
+defaults
+    mode http
+
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_version_hidden(config)
+        assert finding.check_id == "HAPR-INF-003"
+        assert finding.status == Status.FAIL
+
+    def test_pass_version_headers_in_backend(self):
+        config = parse_string("""
+backend bk_web
+    http-response del-header X-Powered-By
+    http-response del-header X-AspNet-Version
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_version_hidden(config)
+        assert finding.check_id == "HAPR-INF-003"
+        assert finding.status == Status.PASS
+        assert "backend" in finding.evidence.lower()
+
+    def test_pass_version_headers_in_frontend(self):
+        config = parse_string("""
+frontend ft_web
+    bind *:80
+    http-response del-header X-Powered-By
+    http-response del-header X-AspNet-Version
+    default_backend bk_web
+""")
+        finding = check_version_hidden(config)
+        assert finding.check_id == "HAPR-INF-003"
+        assert finding.status == Status.PASS
+
+    def test_pass_version_headers_in_listen(self):
+        config = parse_string("""
+listen app
+    bind *:80
+    http-response del-header X-Powered-By
+    http-response del-header X-AspNet-Version
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_version_hidden(config)
+        assert finding.check_id == "HAPR-INF-003"
+        assert finding.status == Status.PASS
+
+
+# ---------------------------------------------------------------------------
+# HAPR-INF-004: Stats Page Version Hidden
+# ---------------------------------------------------------------------------
+
+class TestStatsVersionHidden:
+    """Test check_stats_version_hidden for HAPR-INF-004."""
+
+    def test_pass_no_stats_enabled(self):
+        config = parse_string("""
+defaults
+    mode http
+
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_stats_version_hidden(config)
+        assert finding.check_id == "HAPR-INF-004"
+        assert finding.status == Status.PASS
+
+    def test_pass_stats_with_hide_version(self):
+        config = parse_string("""
+listen stats
+    bind *:8080
+    stats enable
+    stats hide-version
+""")
+        finding = check_stats_version_hidden(config)
+        assert finding.check_id == "HAPR-INF-004"
+        assert finding.status == Status.PASS
+
+    def test_fail_stats_without_hide_version(self):
+        config = parse_string("""
+listen stats
+    bind *:8080
+    stats enable
+""")
+        finding = check_stats_version_hidden(config)
+        assert finding.check_id == "HAPR-INF-004"
+        assert finding.status == Status.FAIL
+
+    def test_fail_stats_uri_without_hide_version(self):
+        config = parse_string("""
+frontend ft_stats
+    bind *:8080
+    stats uri /admin
+""")
+        finding = check_stats_version_hidden(config)
+        assert finding.check_id == "HAPR-INF-004"
+        assert finding.status == Status.FAIL
+
+    def test_pass_stats_in_backend_with_hide_version(self):
+        config = parse_string("""
+backend bk_stats
+    stats enable
+    stats hide-version
+    server stats1 10.0.0.1:80 check
+""")
+        finding = check_stats_version_hidden(config)
+        assert finding.check_id == "HAPR-INF-004"
+        assert finding.status == Status.PASS
+        assert "backend" in finding.evidence.lower()
+
+    def test_fail_stats_in_backend_without_hide_version(self):
+        config = parse_string("""
+backend bk_stats
+    stats enable
+    server stats1 10.0.0.1:80 check
+""")
+        finding = check_stats_version_hidden(config)
+        assert finding.check_id == "HAPR-INF-004"
+        assert finding.status == Status.FAIL
+
+    def test_pass_stats_in_defaults_with_hide_version(self):
+        config = parse_string("""
+defaults
+    stats enable
+    stats hide-version
+""")
+        finding = check_stats_version_hidden(config)
+        assert finding.check_id == "HAPR-INF-004"
+        assert finding.status == Status.PASS
+
+
+# ---------------------------------------------------------------------------
+# HAPR-INF-005: XFF Spoofing Prevention — Additional Paths
+# ---------------------------------------------------------------------------
+
+class TestXFFSpoofingAdditionalPaths:
+    """Test check_xff_spoofing_prevention for HAPR-INF-005."""
+
+    def test_not_applicable_no_forwardfor(self):
+        config = parse_string("""
+defaults
+    mode http
+
+frontend ft_web
+    bind *:80
+    default_backend bk_web
+""")
+        finding = check_xff_spoofing_prevention(config)
+        assert finding.check_id == "HAPR-INF-005"
+        assert finding.status == Status.NOT_APPLICABLE
+
+    def test_pass_del_header_xff(self):
+        config = parse_string("""
+defaults
+    mode http
+    option forwardfor
+    http-request del-header X-Forwarded-For
+""")
+        finding = check_xff_spoofing_prevention(config)
+        assert finding.check_id == "HAPR-INF-005"
+        assert finding.status == Status.PASS
+
+    def test_pass_set_header_xff_src(self):
+        config = parse_string("""
+defaults
+    mode http
+    option forwardfor
+    http-request set-header X-Forwarded-For %[src]
+""")
+        finding = check_xff_spoofing_prevention(config)
+        assert finding.check_id == "HAPR-INF-005"
+        assert finding.status == Status.PASS
+
+    def test_partial_if_none(self):
+        config = parse_string("""
+defaults
+    mode http
+    option forwardfor if-none
+""")
+        finding = check_xff_spoofing_prevention(config)
+        assert finding.check_id == "HAPR-INF-005"
+        assert finding.status == Status.PARTIAL
+
+    def test_fail_forwardfor_without_protection(self):
+        config = parse_string("""
+defaults
+    mode http
+    option forwardfor
+""")
+        finding = check_xff_spoofing_prevention(config)
+        assert finding.check_id == "HAPR-INF-005"
+        assert finding.status == Status.FAIL
+
+    def test_pass_xff_protection_in_backend(self):
+        config = parse_string("""
+backend bk_web
+    option forwardfor
+    http-request del-header X-Forwarded-For
+    server web1 10.0.0.1:80 check
+""")
+        finding = check_xff_spoofing_prevention(config)
+        assert finding.check_id == "HAPR-INF-005"
+        assert finding.status == Status.PASS
+        assert "backend" in finding.evidence.lower()
