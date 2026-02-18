@@ -21,6 +21,8 @@ env/
 .pytest_cache/
 .coverage
 htmlcov/
+download/
+test-configs/
 
 # Logs
 *.log
