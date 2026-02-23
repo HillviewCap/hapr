@@ -15,7 +15,7 @@ cffi==2.0.0
 charset-normalizer==3.4.4
 cryptography==46.0.5
 idna==3.11
-markdown-it-py==3.0.0
+markdown-it-py==4.0.0
 MarkupSafe==3.0.3
 mdurl==0.1.2
 narwhals==2.16.0
