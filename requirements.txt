@@ -20,7 +20,7 @@ MarkupSafe==3.0.3
 mdurl==0.1.2
 narwhals==2.16.0
 nassl==5.4.0
-packaging==24.0
+packaging==26.0
 pycparser==3.0
 pydantic==2.12.5
 pydantic_core==2.41.5
