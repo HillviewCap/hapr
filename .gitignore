@@ -30,3 +30,6 @@ test-configs/
 # OS
 .DS_Store
 Thumbs.db
+
+haproxy.cfg
+*.html
