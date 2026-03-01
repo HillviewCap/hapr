@@ -655,6 +655,17 @@ backend bk_web
         assert finding.check_id == "HAPR-TLS-006"
         assert finding.status == Status.PASS
 
+    def test_hsts_with_extra_whitespace_passes(self):
+        """Configs with alignment spacing between set-header and the header name."""
+        config = parse_string("""
+frontend fe_dashboard-https-443
+    bind 192.168.1.218:443 ssl crt /etc/haproxy/ssl/crt/dashboard.pem
+    http-response set-header    Strict-Transport-Security "max-age=31536000; includeSubDomains;"
+""")
+        finding = check_hsts_configured(config)
+        assert finding.check_id == "HAPR-TLS-006"
+        assert finding.status == Status.PASS
+
 
 # ===========================================================================
 # Issue #20: TLS — force-tlsv12 and no-sslv3/no-tlsv10/no-tlsv11

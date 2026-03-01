@@ -380,9 +380,9 @@ def check_hsts_configured(config: HAProxyConfig) -> Finding:
             # Typical form: "set-header Strict-Transport-Security ..."
             # Also match "add-header Strict-Transport-Security ..."
             if d.args.startswith("set-header "):
-                header_rest = d.args[len("set-header "):]
+                header_rest = d.args[len("set-header "):].lstrip()
             elif d.args.startswith("add-header "):
-                header_rest = d.args[len("add-header "):]
+                header_rest = d.args[len("add-header "):].lstrip()
             else:
                 continue
             if hsts_pattern.match(header_rest):
