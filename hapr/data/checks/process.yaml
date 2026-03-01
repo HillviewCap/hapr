@@ -94,7 +94,7 @@
   references:
     nist:
     - SC-5
-    - AU-5(1)
+    - SC-6
     owasp:
     - A05:2021 Security Misconfiguration
     stig:

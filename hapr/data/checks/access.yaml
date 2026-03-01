@@ -73,7 +73,7 @@
   references:
     nist:
     - SC-5
-    - SI-10
+    - SI-4
     owasp:
     - A05:2021 Security Misconfiguration
     stig:
@@ -99,7 +99,7 @@
   references:
     nist:
     - SC-5
-    - AU-6
+    - SI-4
     owasp:
     - A05:2021 Security Misconfiguration
     stig:
@@ -350,7 +350,7 @@
     - SC-5
     - SC-5(2)
     owasp:
-    - A04:2021 Insecure Design
+    - A05:2021 Security Misconfiguration
     stig:
     - SRG-APP-000246-WSR-000149
   check_function: access.check_api_rate_limiting

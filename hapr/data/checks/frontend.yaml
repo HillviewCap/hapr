@@ -208,7 +208,7 @@
     - SI-3
     - SI-4
     owasp:
-    - A05:2021 Security Misconfiguration
+    - A03:2021 Injection
     stig:
     - SRG-APP-000251-WSR-000157
   check_function: frontend.check_spoe_waf_filter

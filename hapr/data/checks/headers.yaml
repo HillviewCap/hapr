@@ -18,7 +18,7 @@
     http-response set-header X-Frame-Options DENY
   references:
     nist:
-    - SI-10
+    - AC-4
     - SC-18
     owasp:
     - A05:2021 Security Misconfiguration
@@ -97,8 +97,8 @@
     strict-origin-when-cross-origin
   references:
     nist:
-    - SC-8
-    - SC-7
+    - SC-18
+    - AC-4
     owasp:
     - A05:2021 Security Misconfiguration
     stig:
@@ -230,7 +230,7 @@
     Cross-Origin-Resource-Policy same-origin
   references:
     nist:
-    - SC-8
+    - SC-18
     - AC-4
     owasp:
     - A05:2021 Security Misconfiguration

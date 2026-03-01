@@ -225,7 +225,7 @@
   references:
     nist:
     - SC-8
-    - CM-6
+    - SC-13
     owasp:
     - A02:2021 Cryptographic Failures
     stig:
