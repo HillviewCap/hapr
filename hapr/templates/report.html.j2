@@ -1,6 +1,9 @@
 {# ── Macro: map a percentage to a color ──────────────────── #}
 {% macro score_color(pct) %}{% if pct >= 90 %}#27ae60{% elif pct >= 75 %}#2ecc71{% elif pct >= 60 %}#f1c40f{% elif pct >= 40 %}#e67e22{% else %}#e74c3c{% endif %}{% endmacro %}
 
+{# ── Macro: tier ID → display label ─────────────────────── #}
+{% macro tier_label(tier) %}{% if tier == "baseline" %}Baseline{% elif tier == "level1" %}Level 1{% elif tier == "level2" %}Level 2{% elif tier == "level3" %}Level 3{% else %}{{ tier }}{% endif %}{% endmacro %}
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -352,10 +355,206 @@
             font-size: 0.85rem;
         }
         .remed-item strong { color: #1a2332; }
+        .remed-item .remed-finding {
+            margin-top: 0.25rem;
+            color: #2c3e50;
+            font-style: italic;
+        }
+        .remed-item .remed-finding::before { content: "Finding: "; font-weight: 600; font-style: normal; }
         .remed-item p { margin-top: 0.25rem; color: #5a6a7a; }
+
+        /* ── Export Button ────────────────────────────────────── */
+        .export-btn {
+            padding: 0.35rem 0.85rem;
+            border: 1px solid #d5d8dc;
+            border-radius: 4px;
+            background: #fff;
+            font-size: 0.78rem;
+            font-weight: 600;
+            cursor: pointer;
+            color: #5a6a7a;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .export-btn:hover { background: #f0f2f5; border-color: #bdc3c7; }
+        .export-btn svg {
+            width: 14px;
+            height: 14px;
+            vertical-align: -2px;
+            margin-right: 0.3rem;
+        }
+
+        .remed-tier-badge {
+            display: inline-block;
+            padding: 0.12rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-left: 0.5rem;
+            vertical-align: middle;
+        }
+        .remed-tier-baseline { background: #d4efdf; color: #1e8449; }
+        .remed-tier-level1   { background: #d6eaf8; color: #2471a3; }
+        .remed-tier-level2   { background: #fef5e7; color: #b7950b; }
+        .remed-tier-level3   { background: #f5eef8; color: #7d3c98; }
+
+        .remed-refs {
+            margin-top: 0.4rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.3rem;
+        }
+        .ref-badge {
+            display: inline-block;
+            padding: 0.1rem 0.45rem;
+            border-radius: 3px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+        }
+        .ref-nist  { background: #e8eaf6; color: #283593; }
+        .ref-owasp { background: #fce4ec; color: #b71c1c; }
+        .ref-stig  { background: #e0f2f1; color: #00695c; }
+
+        /* ── Tier Assessment ─────────────────────────────────── */
+        .tier-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.25rem;
+        }
+        .tier-card {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+            padding: 1.25rem 1.5rem;
+            border-top: 4px solid #bdc3c7;
+            position: relative;
+        }
+        .tier-card.tier-exemplary   { border-top-color: #1e8449; }
+        .tier-card.tier-achieved    { border-top-color: #27ae60; }
+        .tier-card.tier-progressing { border-top-color: #f1c40f; }
+        .tier-card.tier-developing  { border-top-color: #e67e22; }
+        .tier-card.tier-not-met     { border-top-color: #e74c3c; }
+        .tier-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+        }
+        .tier-card-header h4 {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: #1a2332;
+            margin: 0;
+        }
+        .tier-badge {
+            display: inline-block;
+            padding: 0.2rem 0.65rem;
+            border-radius: 4px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .tier-badge-exemplary   { background: #a9dfbf; color: #145a32; }
+        .tier-badge-achieved    { background: #d5f5e3; color: #1e8449; }
+        .tier-badge-progressing { background: #fef9e7; color: #7d6608; }
+        .tier-badge-developing  { background: #fdebd0; color: #935116; }
+        .tier-badge-not-met     { background: #fadbd8; color: #922b21; }
+        .tier-description {
+            font-size: 0.82rem;
+            color: #7f8c8d;
+            margin-bottom: 0.75rem;
+        }
+        .tier-score-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+        .tier-score-pct {
+            font-size: 1.4rem;
+            font-weight: 800;
+            min-width: 60px;
+        }
+        .tier-progress {
+            flex: 1;
+        }
+        .tier-stats {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .tier-stat {
+            flex: 1;
+            min-width: 55px;
+            text-align: center;
+            padding: 0.4rem 0.25rem;
+            background: #f7f9fb;
+            border-radius: 4px;
+        }
+        .tier-stat-num {
+            font-size: 1.1rem;
+            font-weight: 800;
+        }
+        .tier-stat-label {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #7f8c8d;
+        }
+        .tier-highest {
+            margin-top: 1.25rem;
+            padding: 0.85rem 1.25rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+        .tier-highest-exemplary   { background: #a9dfbf; color: #145a32; }
+        .tier-highest-achieved    { background: #d5f5e3; color: #1e8449; }
+        .tier-highest-progressing { background: #fef9e7; color: #7d6608; }
+        .tier-highest-developing  { background: #fdebd0; color: #935116; }
+        .tier-highest-not-met     { background: #fadbd8; color: #922b21; }
 
         /* ── Chart containers ─────────────────────────────────── */
         .chart-container { width: 100%; overflow: hidden; }
+
+        /* ── Topology controls ────────────────────────────────── */
+        .topology-controls {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .topology-controls .topo-btn {
+            padding: 0.3rem 0.75rem;
+            border: 1px solid #d5d8dc;
+            border-radius: 4px;
+            background: #fff;
+            font-size: 0.78rem;
+            font-weight: 600;
+            cursor: pointer;
+            color: #5a6a7a;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .topology-controls .topo-btn:hover { background: #f0f2f5; }
+        .topology-controls .topo-btn.active {
+            background: #2c3e50;
+            color: #fff;
+            border-color: #2c3e50;
+        }
+        .topology-controls select {
+            padding: 0.3rem 0.5rem;
+            border: 1px solid #d5d8dc;
+            border-radius: 4px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #5a6a7a;
+            background: #fff;
+            cursor: pointer;
+        }
 
         /* ── Footer ───────────────────────────────────────────── */
         .report-footer {
@@ -414,6 +613,9 @@
      ═══════════════════════════════════════════════════════════ -->
 <nav class="report-nav">
     <a href="#executive-summary">Executive Summary</a>
+    {% if tier_metrics %}
+    <a href="#tier-assessment">Tier Assessment</a>
+    {% endif %}
     <a href="#score-breakdown">Score Breakdown</a>
     <a href="#topology">Topology</a>
     {% if result.scan_performed %}
@@ -508,6 +710,80 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════
+     1b. TIER ASSESSMENT
+     ═══════════════════════════════════════════════════════════ -->
+{% if tier_metrics %}
+<div class="section" id="tier-assessment">
+    <h2 class="section-title">Tier Assessment</h2>
+
+    {# Determine the highest tier at "Achieved" maturity or above #}
+    {% set ns_tier = namespace(highest_label="None", highest_css="not-met") %}
+    {% for t in tier_metrics %}
+        {% if t.maturity_css in ["exemplary", "achieved"] %}
+            {% set ns_tier.highest_label = t.label %}
+            {% set ns_tier.highest_css = t.maturity_css %}
+        {% endif %}
+    {% endfor %}
+
+    {% if ns_tier.highest_label != "None" %}
+    <div class="tier-highest tier-highest-{{ ns_tier.highest_css }}">
+        Highest Achieved Tier: <strong>{{ ns_tier.highest_label }}</strong>
+    </div>
+    {% else %}
+    {# Show the maturity of the first (lowest) tier as context #}
+    {% set first = tier_metrics[0] %}
+    <div class="tier-highest tier-highest-{{ first.maturity_css }}">
+        Baseline Maturity: <strong>{{ first.maturity_label }}</strong> ({{ first.percentage }}%)
+    </div>
+    {% endif %}
+
+    <div class="tier-grid" style="margin-top:1.25rem;">
+        {% for t in tier_metrics %}
+        <div class="tier-card tier-{{ t.maturity_css }}">
+            <div class="tier-card-header">
+                <h4>{{ t.label }}</h4>
+                <span class="tier-badge tier-badge-{{ t.maturity_css }}">{{ t.maturity_label }}</span>
+            </div>
+            <div class="tier-description">{{ t.description }}</div>
+
+            <div class="tier-score-row">
+                <div class="tier-score-pct" style="color:{{ score_color(t.percentage) | trim }};">{{ t.percentage }}%</div>
+                <div class="tier-progress">
+                    <div class="progress-bar-bg">
+                        <div class="progress-bar-fill" style="width:{{ t.percentage }}%; background:{{ score_color(t.percentage) | trim }};"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tier-stats">
+                <div class="tier-stat">
+                    <div class="tier-stat-num" style="color:#27ae60;">{{ t.pass_count }}</div>
+                    <div class="tier-stat-label">Pass</div>
+                </div>
+                <div class="tier-stat">
+                    <div class="tier-stat-num" style="color:#e74c3c;">{{ t.fail_count }}</div>
+                    <div class="tier-stat-label">Fail</div>
+                </div>
+                <div class="tier-stat">
+                    <div class="tier-stat-num" style="color:#e67e22;">{{ t.partial_count }}</div>
+                    <div class="tier-stat-label">Partial</div>
+                </div>
+                <div class="tier-stat">
+                    <div class="tier-stat-num" style="color:#95a5a6;">{{ t.na_count }}</div>
+                    <div class="tier-stat-label">N/A</div>
+                </div>
+                <div class="tier-stat">
+                    <div class="tier-stat-num" style="color:#2c3e50;">{{ t.total }}</div>
+                    <div class="tier-stat-label">Total</div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- ═══════════════════════════════════════════════════════════
      2. SCORE BREAKDOWN
      ═══════════════════════════════════════════════════════════ -->
 <div class="section" id="score-breakdown">
@@ -565,6 +841,28 @@
      ═══════════════════════════════════════════════════════════ -->
 <div class="section" id="topology">
     <h2 class="section-title">Network Topology</h2>
+    {% if topology_stats %}
+    <div class="card">
+        <div class="stat-row">
+            <div class="stat-box">
+                <div class="stat-num" style="color:#4CAF50;">{{ topology_stats.frontends }}</div>
+                <div class="stat-label">Frontends</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-num" style="color:#FF9800;">{{ topology_stats.backends }}</div>
+                <div class="stat-label">Backends</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-num" style="color:#2196F3;">{{ topology_stats.listens }}</div>
+                <div class="stat-label">Listen Sections</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-num" style="color:#78909C;">{{ topology_stats.servers }}</div>
+                <div class="stat-label">Servers</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
     <div class="card">
         {% if topology_html %}
         <div class="chart-container">
@@ -837,6 +1135,12 @@
             </div>
         </div>
 
+        <div style="display:flex; justify-content:flex-end; margin-bottom:0.75rem;">
+            <button class="export-btn" onclick="exportFindingsCsv()">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV
+            </button>
+        </div>
+
         <!-- Findings table -->
         <div style="overflow-x:auto;">
         <table class="data-table" id="findings-table">
@@ -880,6 +1184,12 @@
 <div class="section" id="remediation-summary">
     <h2 class="section-title">Remediation Summary</h2>
 
+    <div style="display:flex; justify-content:flex-end; margin-bottom:0.75rem;">
+        <button class="export-btn" onclick="exportRemediationCsv()">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export CSV
+        </button>
+    </div>
+
     {% set severity_order = ["critical", "high", "medium", "low", "info"] %}
 
     {% for sev in severity_order %}
@@ -898,7 +1208,20 @@
             {% for f in failed %}
             <div class="remed-item">
                 <strong>{{ f.check_id }}</strong> &mdash; {{ f.title | default(f.check_id, true) }}
+                {% if f.tier %}
+                <span class="remed-tier-badge remed-tier-{{ f.tier }}">{{ tier_label(f.tier) }}</span>
+                {% endif %}
+                {% if f.message %}
+                <div class="remed-finding">{{ f.message }}</div>
+                {% endif %}
                 <p>{{ f.remediation }}</p>
+                {% if f.references %}
+                <div class="remed-refs">
+                    {% for framework, ids in f.references.items() %}
+                    <span class="ref-badge ref-{{ framework }}">{{ framework | upper }}: {{ ids | join(", ") }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
             </div>
             {% endfor %}
         </div>
@@ -1035,6 +1358,90 @@
     document.addEventListener("DOMContentLoaded", function () {
         filterTable();
     });
+
+    /* ── CSV Export ─────────────────────────────────────── */
+    var TIER_LABELS = {"baseline":"Baseline","level1":"Level 1","level2":"Level 2","level3":"Level 3"};
+
+    var findingsData = [
+        {% for f in result.findings %}
+        {
+            "id": {{ f.check_id | tojson }},
+            "title": {{ f.title | default(f.check_id, true) | tojson }},
+            "category": {{ f.category | default("") | tojson }},
+            "tier": {{ (f.tier or "") | tojson }},
+            "severity": {{ f.severity.value | tojson }},
+            "status": {{ f.status.value | tojson }},
+            "message": {{ f.message | default("") | tojson }},
+            "evidence": {{ f.evidence | default("") | tojson }},
+            "remediation": {{ f.remediation | default("") | tojson }},
+            "nist": {{ (f.references.get("nist", []) if f.references else []) | tojson }},
+            "owasp": {{ (f.references.get("owasp", []) if f.references else []) | tojson }},
+            "stig": {{ (f.references.get("stig", []) if f.references else []) | tojson }}
+        }{{ "," if not loop.last else "" }}
+        {% endfor %}
+    ];
+
+    function csvEscape(val) {
+        var s = String(val == null ? "" : val);
+        if (s.indexOf('"') !== -1 || s.indexOf(',') !== -1 || s.indexOf('\n') !== -1 || s.indexOf('\r') !== -1) {
+            return '"' + s.replace(/"/g, '""') + '"';
+        }
+        return s;
+    }
+
+    function downloadCsv(filename, csvContent) {
+        var blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        var link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    window.exportFindingsCsv = function () {
+        var header = ["ID","Title","Category","Tier","Severity","Status","Message","Evidence","NIST","OWASP","STIG"];
+        var rows = [header.join(",")];
+        for (var i = 0; i < findingsData.length; i++) {
+            var f = findingsData[i];
+            rows.push([
+                csvEscape(f.id),
+                csvEscape(f.title),
+                csvEscape(f.category),
+                csvEscape(TIER_LABELS[f.tier] || f.tier),
+                csvEscape(f.severity),
+                csvEscape(f.status),
+                csvEscape(f.message),
+                csvEscape(f.evidence),
+                csvEscape((f.nist || []).join("; ")),
+                csvEscape((f.owasp || []).join("; ")),
+                csvEscape((f.stig || []).join("; "))
+            ].join(","));
+        }
+        downloadCsv("hapr-findings.csv", rows.join("\r\n"));
+    };
+
+    window.exportRemediationCsv = function () {
+        var header = ["ID","Title","Category","Tier","Severity","Finding","Remediation","NIST","OWASP","STIG"];
+        var rows = [header.join(",")];
+        for (var i = 0; i < findingsData.length; i++) {
+            var f = findingsData[i];
+            if (f.status !== "fail" || !f.remediation) continue;
+            rows.push([
+                csvEscape(f.id),
+                csvEscape(f.title),
+                csvEscape(f.category),
+                csvEscape(TIER_LABELS[f.tier] || f.tier),
+                csvEscape(f.severity),
+                csvEscape(f.message),
+                csvEscape(f.remediation),
+                csvEscape((f.nist || []).join("; ")),
+                csvEscape((f.owasp || []).join("; ")),
+                csvEscape((f.stig || []).join("; "))
+            ].join(","));
+        }
+        downloadCsv("hapr-remediation.csv", rows.join("\r\n"));
+    };
 })();
 </script>
 
