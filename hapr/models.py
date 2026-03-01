@@ -270,6 +270,7 @@ class Finding:
     remediation: str = ""
     weight: int = 0
     tier: str | None = None
+    references: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass

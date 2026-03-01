@@ -217,6 +217,7 @@ def _execute_check(
             remediation=check_def.get("remediation", ""),
             weight=weight,
             tier=check_def.get("tier"),
+            references=check_def.get("references", {}),
         )
 
     try:
@@ -238,6 +239,7 @@ def _execute_check(
             remediation=check_def.get("remediation", ""),
             weight=weight,
             tier=check_def.get("tier"),
+            references=check_def.get("references", {}),
         )
 
     # Enrich the finding with baseline metadata
@@ -248,6 +250,7 @@ def _execute_check(
     finding.category = check_def.get("category", finding.category)
     finding.remediation = check_def.get("remediation", finding.remediation)
     finding.tier = check_def.get("tier")
+    finding.references = check_def.get("references", {})
 
     return finding
 
